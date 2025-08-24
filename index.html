@@ -3,43 +3,38 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Roll & Pitch — Live (Protected, Boxplots & Peaks)</title>
+  <title>Roll & Pitch — Live (Protected, Peaks & Boxplots)</title>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif; }
     body { margin: 16px; }
     h2 { margin: 0 0 12px 0; }
     .row { display: flex; gap: 16px; flex-wrap: wrap; }
     .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; box-shadow: 0 1px 6px rgba(0,0,0,.05); }
-    .grow { flex: 1 1 600px; }
-    .half { flex: 1 1 340px; min-width: 320px; }
+    .grow { flex: 1 1 560px; }
+    .half { flex: 1 1 320px; min-width: 300px; }
     .muted { color: #666; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; }
     .btns { display:flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     button { padding: 8px 10px; border-radius: 8px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
-    input, select { width: 100%; padding: 8px 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 8px; }
+    input { width: 100%; padding: 8px 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 8px; }
     label { font-size: 12px; color: #555; margin-bottom: 4px; display:block; }
     .hidden { display: none; }
     .ok { color: #067d00; }
     .bad { color: #bf0000; }
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-    .kpi { display:grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap:10px; }
-    .kpi .box { border:1px solid #eee; border-radius:10px; padding:10px; }
-    .k { font-size: 12px; color:#333; }
-    .v { font-weight: 700; }
-    pre { background:#f6f8fa; padding:8px; border-radius:8px; overflow:auto; max-height:120px; }
-    small { font-size:12px; }
+    .num { font-weight: 600; }
+    .small { font-size: 12px; }
   </style>
-  <!-- libs -->
   <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot@4.4.1/build/index.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot"></script>
 </head>
 <body>
-  <h2>Roll &amp; Pitch — Live Web Plot <small class="muted">(Protected, Boxplots & Peaks)</small></h2>
+  <h2>Roll &amp; Pitch — Live Web Plot</h2>
 
   <!-- Unlock panel -->
   <div id="gate" class="card half">
-    <p><b>Protected dashboard</b>. Enter the site password to view the plot. (MQTT viewer creds are stored encrypted.)</p>
+    <p><b>Protected dashboard</b>. Enter the site password to view the plot.</p>
     <div>
       <label>Site password</label>
       <input id="pw" type="password" placeholder="Enter password"/>
@@ -47,7 +42,7 @@
     <div class="btns">
       <button id="btnUnlock">Unlock</button>
     </div>
-    <p class="muted mono" id="unlockMsg"></p>
+    <p class="muted mono small" id="unlockMsg"></p>
   </div>
 
   <!-- App panel -->
@@ -76,65 +71,55 @@
             <input id="cid" readonly/>
           </div>
           <div>
-            <label>Status</label>
-            <input id="status" readonly value="locked"/>
+            <label>Window (seconds)</label>
+            <input id="winSec" value="120"/>
+          </div>
+          <div>
+            <label>Min peak distance (ms)</label>
+            <input id="minDist" value="300"/>
+          </div>
+          <div>
+            <label>Min prominence (deg)</label>
+            <input id="minProm" value="1.0"/>
           </div>
         </div>
-
-        <div style="margin-top:10px"><b>Peak detection</b></div>
-        <div class="grid">
-          <div>
-            <label>Sensitivity (k × MAD)</label>
-            <input id="sens" type="range" min="0.5" max="6" step="0.1" value="2.0"/>
-            <div class="muted"><span id="sensVal">2.0</span> × MAD</div>
-          </div>
-          <div>
-            <label>Min peak distance (s)</label>
-            <input id="minDist" type="range" min="0.2" max="5" step="0.1" value="1.0"/>
-            <div class="muted"><span id="minDistVal">1.0</span> s</div>
-          </div>
-        </div>
-
-        <div style="margin-top:10px"><b>Window</b></div>
-        <div class="grid">
-          <div>
-            <label>Analysis window (s)</label>
-            <input id="winSec" type="number" min="10" max="600" step="10" value="120"/>
-          </div>
-          <div>
-            <label>Subscribe on load</label>
-            <select id="autoSub"><option value="1">Yes</option><option value="0">No</option></select>
-          </div>
-        </div>
-
         <div class="btns">
           <button id="btnConnect">Connect</button>
           <button id="btnDisconnect">Disconnect</button>
           <button id="btnClear">Clear</button>
         </div>
-        <div class="muted small">WSS URL: <span class="mono" id="url"></span></div>
-        <div class="muted" id="last"></div>
-        <div style="margin-top:8px">
-          <details>
-            <summary class="muted">Last raw payload (for debugging)</summary>
-            <pre id="raw" class="mono"></pre>
-          </details>
+        <div style="margin-top:10px">
+          <div>Status: <span id="status" class="muted">locked</span></div>
+          <div class="muted small">WSS URL: <span class="mono" id="url"></span></div>
+          <div class="muted small" id="last"></div>
         </div>
+        <p class="muted small" style="margin-top:8px">
+          Uses a <b>read‑only</b> viewer credential (decrypted in-browser) limited to your topic. No backend required.
+        </p>
       </div>
 
       <div class="card grow">
-        <canvas id="ts" height="160"></canvas>
-        <div style="height:10px"></div>
-        <canvas id="boxes" height="130"></canvas>
-        <div style="height:10px"></div>
-        <div class="kpi">
-          <div class="box"><div class="k">Sample rate</div><div class="v" id="sr">—</div></div>
-          <div class="box"><div class="k">Roll freq (Hz)</div><div class="v" id="fr">—</div></div>
-          <div class="box"><div class="k">Pitch freq (Hz)</div><div class="v" id="fp">—</div></div>
-          <div class="box"><div class="k">Roll median (°)</div><div class="v" id="rmed">—</div></div>
-          <div class="box"><div class="k">Pitch median (°)</div><div class="v" id="pmed">—</div></div>
-          <div class="box"><div class="k">Window size</div><div class="v" id="wsize">—</div></div>
+        <canvas id="chart_ts" height="140"></canvas>
+        <div class="grid" style="margin-top:8px">
+          <div class="card">
+            <div><b>Roll Peaks</b></div>
+            <div class="small">freq: <span class="num" id="rollHz">–</span> Hz | peaks: <span class="num" id="rollPk">0</span></div>
+            <div class="small">mean: <span class="num" id="rollMean">–</span> | std: <span class="num" id="rollStd">–</span></div>
+            <div class="small">latest: <span class="num" id="rollNow">–</span>°</div>
+          </div>
+          <div class="card">
+            <div><b>Pitch Peaks</b></div>
+            <div class="small">freq: <span class="num" id="pitchHz">–</span> Hz | peaks: <span class="num" id="pitchPk">0</span></div>
+            <div class="small">mean: <span class="num" id="pitchMean">–</span> | std: <span class="num" id="pitchStd">–</span></div>
+            <div class="small">latest: <span class="num" id="pitchNow">–</span>°</div>
+          </div>
         </div>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:16px">
+      <div class="card grow">
+        <canvas id="chart_box" height="120"></canvas>
       </div>
     </div>
   </div>
@@ -149,8 +134,7 @@ async function deriveKey(password, salt) {
     { name: "PBKDF2", salt, iterations: 120000, hash: "SHA-256" },
     keyMaterial,
     { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"]
+    false, ["encrypt","decrypt"]
   );
 }
 async function decryptCreds(passphrase, blobB64) {
@@ -159,25 +143,199 @@ async function decryptCreds(passphrase, blobB64) {
   const salt = b64d(j.salt), iv = b64d(j.iv), ct = b64d(j.ct);
   const key = await deriveKey(passphrase, salt);
   const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
-  return JSON.parse(new TextDecoder().decode(new Uint8Array(pt))); // {user, pass}
+  return JSON.parse(new TextDecoder().decode(new Uint8Array(pt)));
 }
 
 // ====== CONFIG ======
 const ENCRYPTED_CREDS = "eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9"; // <-- replace with blob from encrypt.html
 
-// ====== UI / STATE ======
+// ====== Helpers ======
 const $ = (id) => document.getElementById(id);
-let client = null, unlocked = false, viewer = {user:null, pass:null};
-let tsChart = null, boxChart = null;
+function setStatus(text, ok=false){ $("status").textContent=text; $("status").className=ok?"ok":"bad"; }
+function meanStd(arr){
+  if (!arr.length) return {mean:NaN,std:NaN};
+  const m = arr.reduce((a,b)=>a+b,0)/arr.length;
+  const v = arr.reduce((a,b)=>a+(b-m)*(b-m),0)/arr.length;
+  return {mean:m, std:Math.sqrt(v)};
+}
+function quantiles(arr){
+  if (!arr.length) return {min:NaN,q1:NaN,median:NaN,q3:NaN,max:NaN};
+  const a = Array.from(arr).sort((x,y)=>x-y);
+  const q = p => {
+    if (a.length===1) return a[0];
+    const pos = (a.length - 1) * p;
+    const base = Math.floor(pos);
+    const rest = pos - base;
+    return (rest===0) ? a[base] : a[base] + rest*(a[base+1]-a[base]);
+  };
+  return {min:a[0], q1:q(0.25), median:q(0.5), q3:q(0.75), max:a[a.length-1]};
+}
+// Simple prominence-based peak detection
+function detectPeaks(values, times, minDistMs, minProm){
+  const n = values.length;
+  if (n < 3) return [];
+  const peaks = [];
+  let lastPeakIdx = -1;
+  for (let i=1;i<n-1;i++){
+    const v = values[i];
+    if (v <= values[i-1] || v <= values[i+1]) continue; // local max
+    // local baseline: minimum of neighbors within a small window
+    const w = 5; // +/- window in samples for baseline
+    const i0 = Math.max(0, i-w), i1 = Math.min(n-1, i+w);
+    let base = values[i0];
+    for (let j=i0+1;j<=i1;j++) base = Math.min(base, values[j]);
+    const prom = v - base;
+    if (prom < minProm) continue;
+    // min distance
+    if (lastPeakIdx >= 0) {
+      const dt = times[i] - times[lastPeakIdx];
+      if (dt < minDistMs) continue;
+    }
+    peaks.push({idx:i, t:times[i], v:v});
+    lastPeakIdx = i;
+  }
+  return peaks;
+}
 
-$("sens").addEventListener("input", ()=> $("sensVal").textContent = $("sens").value);
-$("minDist").addEventListener("input", ()=> $("minDistVal").textContent = $("minDist").value);
+// ====== State ======
+let client = null;
+let unlocked = false;
+let viewer = { user:null, pass:null };
+let chartTS = null, chartBox = null;
 
-document.getElementById("btnUnlock").addEventListener("click", async () => {
+const MAX_POINTS = 1200; // ~2 minutes at 10 Hz
+const xs = [], rollArr = [], pitchArr = [];
+let rollPeaks = [], pitchPeaks = [];
+
+// ====== Charts ======
+function makeTimeseries(){
+  const ctx = document.getElementById("chart_ts").getContext("2d");
+  return new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [
+        { label: "roll (deg)",  data: [], yAxisID: "y", pointRadius: 0, borderWidth: 2, tension: 0.15 },
+        { label: "pitch (deg)", data: [], yAxisID: "y", pointRadius: 0, borderWidth: 2, tension: 0.15 },
+        // peak markers (scatter overlays)
+        { label: "roll peaks",  type:"scatter", data: [], yAxisID: "y", pointRadius: 5, showLine: false },
+        { label: "pitch peaks", type:"scatter", data: [], yAxisID: "y", pointRadius: 5, showLine: false }
+      ]
+    },
+    options: {
+      animation: false, responsive: true, maintainAspectRatio: false,
+      scales: {
+        x: { title:{display:true,text:"samples (latest right)"}, ticks:{ maxTicksLimit: 10 } },
+        y: { title:{display:true,text:"degrees"} }
+      },
+      plugins: { legend: { position: "bottom" } }
+    }
+  });
+}
+
+function makeBoxplot(){
+  const ctx = document.getElementById("chart_box").getContext("2d");
+  return new Chart(ctx, {
+    type: "boxplot",
+    data: {
+      labels: ["roll", "pitch"],
+      datasets: [{
+        label: "distribution (window)",
+        data: [
+          {min:0,q1:0,median:0,q3:0,max:0},
+          {min:0,q1:0,median:0,q3:0,max:0}
+        ]
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: "bottom" } },
+      scales: { y: { title:{display:true,text:"degrees"} } }
+    }
+  });
+}
+
+// ====== App logic ======
+function pushPoint(t, r, p){
+  xs.push(t); rollArr.push(r); pitchArr.push(p);
+  if (xs.length > MAX_POINTS) { xs.shift(); rollArr.shift(); pitchArr.shift(); }
+}
+
+function refreshCharts(){
+  // Update time series
+  const labels = xs.map((_,i)=>i);
+  chartTS.data.labels = labels;
+  chartTS.data.datasets[0].data = rollArr;
+  chartTS.data.datasets[1].data = pitchArr;
+
+  // Peaks -> scatter points (x=index, y=value)
+  chartTS.data.datasets[2].data = rollPeaks.map(pk => ({x: labels.length - (xs.length - pk.idx), y: pk.v}));
+  chartTS.data.datasets[3].data = pitchPeaks.map(pk => ({x: labels.length - (xs.length - pk.idx), y: pk.v}));
+
+  chartTS.update("none");
+
+  // Update boxplots
+  const rb = quantiles(rollArr);
+  const pb = quantiles(pitchArr);
+  chartBox.data.datasets[0].data = [rb, pb];
+  chartBox.update("none");
+
+  // Update numbers
+  const rStats = meanStd(rollArr);
+  const pStats = meanStd(pitchArr);
+  $("rollMean").textContent  = isFinite(rStats.mean)? rStats.mean.toFixed(2) : "–";
+  $("rollStd").textContent   = isFinite(rStats.std)?  rStats.std.toFixed(2)  : "–";
+  $("pitchMean").textContent = isFinite(pStats.mean)? pStats.mean.toFixed(2) : "–";
+  $("pitchStd").textContent  = isFinite(pStats.std)?  pStats.std.toFixed(2)  : "–";
+  const lastR = rollArr[rollArr.length-1], lastP = pitchArr[pitchArr.length-1];
+  $("rollNow").textContent   = (lastR!==undefined)? lastR.toFixed(2) : "–";
+  $("pitchNow").textContent  = (lastP!==undefined)? lastP.toFixed(2) : "–";
+  $("rollPk").textContent    = rollPeaks.length;
+  $("pitchPk").textContent   = pitchPeaks.length;
+
+  // Frequency from peak-to-peak over last window
+  function freqFromPeaks(peaks){
+    if (peaks.length < 2) return NaN;
+    let sum=0, cnt=0;
+    for (let i=1;i<peaks.length;i++){
+      const dt = (peaks[i].t - peaks[i-1].t)/1000; // seconds
+      if (dt>0) { sum += dt; cnt++; }
+    }
+    if (cnt===0) return NaN;
+    return 1/(sum/cnt);
+  }
+  const fR = freqFromPeaks(rollPeaks);
+  const fP = freqFromPeaks(pitchPeaks);
+  $("rollHz").textContent  = isFinite(fR)? fR.toFixed(2) : "–";
+  $("pitchHz").textContent = isFinite(fP)? fP.toFixed(2) : "–";
+}
+
+function recomputePeaks(){
+  const winSec = parseFloat($("winSec").value || "120");
+  const minDist = parseFloat($("minDist").value || "300");
+  const minProm = parseFloat($("minProm").value || "1.0");
+
+  // Use full buffers (already limited by MAX_POINTS). If you want exact time window, trim by timestamp:
+  const startT = xs.length ? (xs[xs.length-1] - winSec*1000) : 0;
+  let s = 0; while (s < xs.length && xs[s] < startT) s++;
+  const valuesR = rollArr.slice(s), valuesP = pitchArr.slice(s);
+  const times   = xs.slice(s);
+
+  rollPeaks  = detectPeaks(valuesR, times, minDist, minProm);
+  pitchPeaks = detectPeaks(valuesP, times, minDist, minProm);
+
+  // Adjust stored indices to global arrays (we'll re-map to chart x in refresh)
+  if (s>0) {
+    rollPeaks.forEach(pk => pk.idx += s);
+    pitchPeaks.forEach(pk => pk.idx += s);
+  }
+}
+
+async function unlock(){
   const pwd = $("pw").value;
-  if (!pwd) { $("unlockMsg").textContent = "Enter password."; return; }
+  if (!pwd) { $("unlockMsg").textContent = "Enter a password."; return; }
   if (!ENCRYPTED_CREDS || ENCRYPTED_CREDS === "PASTE_CIPHERTEXT_HERE") {
-    $("unlockMsg").textContent = "No encrypted creds embedded. Use encrypt.html to generate a blob and paste into ENCRYPTED_CREDS.";
+    $("unlockMsg").textContent = "No encrypted creds embedded. Generate with encrypt.html and paste the blob.";
     return;
   }
   try {
@@ -187,174 +345,20 @@ document.getElementById("btnUnlock").addEventListener("click", async () => {
     $("gate").classList.add("hidden");
     $("app").classList.remove("hidden");
     $("cid").value = "web-" + Math.random().toString(16).slice(2, 10);
+    chartTS = makeTimeseries();
+    chartBox = makeBoxplot();
     setStatus("unlocked — not connected");
-    initCharts();                      // ensure charts exist before any connection/messages
-    if ($("autoSub").value === "1") connect();
   } catch (e) {
     $("unlockMsg").textContent = "Wrong password or corrupted ciphertext.";
   }
-});
-
-document.getElementById("btnConnect").addEventListener("click", connect);
-document.getElementById("btnDisconnect").addEventListener("click", disconnect);
-document.getElementById("btnClear").addEventListener("click", () => clearBuffers(true));
-
-function setStatus(text, ok=false) { $("status").value = text; $("status").className = ok ? "ok" : "bad"; }
-
-// ====== Data buffers & utils ======
-let buf = [];            // {idx, ts, roll, pitch}
-let idx = 0;
-let rollPeaks = [];      // peak indices
-let pitchPeaks = [];
-let srEWMA = null;       // sample rate estimate (EWMA)
-
-function median(arr) {
-  if (!arr.length) return NaN;
-  const a = [...arr].sort((x,y)=>x-y);
-  const m = Math.floor(a.length/2);
-  return a.length%2 ? a[m] : (a[m-1]+a[m])/2;
-}
-function MAD(arr, med) {
-  const dev = arr.map(v => Math.abs(v - med));
-  return median(dev);
-}
-function quantiles(arr) {
-  if (!arr.length) return {min:NaN,q1:NaN,median:NaN,q3:NaN,max:NaN};
-  const a=[...arr].sort((x,y)=>x-y);
-  const q=(p)=>{ const pos=(a.length-1)*p; const base=Math.floor(pos), rest=pos-base;
-    return a[base+1]!==undefined? a[base]+rest*(a[base+1]-a[base]) : a[base]; };
-  return {min:a[0], q1:q(0.25), median:q(0.5), q3:q(0.75), max:a[a.length-1]};
-}
-function pruneByWindow(seconds) {
-  if (!buf.length) return;
-  const latestTs = buf[buf.length-1].ts;
-  const cutoff = latestTs - seconds*1000;
-  const startLen = buf.length;
-  while (buf.length && buf[0].ts < cutoff) buf.shift();
-  const firstIdx = buf.length ? buf[0].idx : 0;
-  rollPeaks = rollPeaks.filter(i => i >= firstIdx);
-  pitchPeaks = pitchPeaks.filter(i => i >= firstIdx);
-}
-function detectPeaks(values, timestamps, kMAD, minDistSec, srHz) {
-  const res = [];
-  if (values.length < 5) return res;
-  const med = median(values);
-  const mad = MAD(values, med) || 1e-6;
-  const thresh = med + kMAD * 1.4826 * mad;
-  const minDist = Math.max(1, Math.round(minDistSec * (srHz || 10)));
-  for (let i = 1; i < values.length - 1; i++) {
-    if (values[i] > values[i-1] && values[i] >= values[i+1] && values[i] >= thresh) {
-      if (!res.length || (i - res[res.length-1]) >= minDist) res.push(i);
-    }
-  }
-  return res;
-}
-function estimateSampleRate(tsArr) {
-  if (tsArr.length < 4) return null;
-  const dt=[]; for (let i=1;i<tsArr.length;i++){ const d=(tsArr[i]-tsArr[i-1])/1000.0; if (d>0 && d<5) dt.push(d); }
-  if (!dt.length) return null;
-  const medDt = median(dt); return 1.0/medDt;
-}
-function peakFreq(peaks, tsArr) {
-  if (peaks.length < 2) return null;
-  const periods=[]; for (let i=1;i<peaks.length;i++){ const t=(tsArr[peaks[i]]-tsArr[peaks[i-1]])/1000.0; if (t>0 && t<30) periods.push(t); }
-  if (!periods.length) return null;
-  const p = median(periods); return 1.0/p;
 }
 
-// ====== Charts ======
-function initCharts() {
-  if (tsChart && boxChart) return; // already inited
-  const tsctx = document.getElementById("ts").getContext("2d");
-  const bctx  = document.getElementById("boxes").getContext("2d");
-
-  tsChart = new Chart(tsctx, {
-    type: "line",
-    data: { labels: [], datasets: [
-      { label: "roll (deg)",  data: [], pointRadius: 0, borderWidth: 2, tension: 0.15 },
-      { label: "pitch (deg)", data: [], pointRadius: 0, borderWidth: 2, tension: 0.15 },
-      { label: "roll peaks",  type: "scatter", data: [], pointRadius: 3, borderWidth: 0 },
-      { label: "pitch peaks", type: "scatter", data: [], pointRadius: 3, borderWidth: 0 },
-    ]},
-    options: {
-      animation: false, responsive: true, maintainAspectRatio: false,
-      scales: { x: { title: { display:true, text:"samples (latest at right)" }},
-               y: { title: { display:true, text:"degrees" } } },
-      plugins: { legend: { position: "bottom" } }
-    }
-  });
-
-  boxChart = new Chart(bctx, {
-    type: "boxplot",
-    data: { labels: ["roll", "pitch"], datasets: [{
-      label: "Distribution (window)",
-      data: [
-        {min:0,q1:0,median:0,q3:0,max:0},
-        {min:0,q1:0,median:0,q3:0,max:0},
-      ]
-    }]},
-    options: {
-      responsive:true, maintainAspectRatio:false,
-      plugins:{ legend:{ position:"bottom" } },
-      scales:{ y:{ title:{display:true,text:"degrees"} } }
-    }
-  });
-}
-
-function updateCharts() {
-  if (!tsChart || !boxChart) return; // guard: charts not ready yet
-
-  if (!buf.length) return;
-  const labels = buf.map(p => p.idx);
-  const roll = buf.map(p => p.roll);
-  const pitch = buf.map(p => p.pitch);
-  const ts = buf.map(p => p.ts);
-
-  const estHz = estimateSampleRate(ts);
-  if (estHz) {
-    srEWMA = srEWMA === null ? estHz : (0.8*srEWMA + 0.2*estHz);
-    $("sr").textContent = srEWMA.toFixed(2) + " Hz";
-  }
-
-  const kMAD = parseFloat($("sens").value);
-  const minDistSec = parseFloat($("minDist").value);
-  const rollIdx = detectPeaks(roll, ts, kMAD, minDistSec, srEWMA);
-  const pitchIdx = detectPeaks(pitch, ts, kMAD, minDistSec, srEWMA);
-  rollPeaks = rollIdx.map(i => buf[i].idx);
-  pitchPeaks = pitchIdx.map(i => buf[i].idx);
-
-  const rollPeakPts = rollIdx.map(i => ({x: buf[i].idx, y: roll[i]}));
-  const pitchPeakPts= pitchIdx.map(i => ({x: buf[i].idx, y: pitch[i]}));
-
-  tsChart.data.labels = labels;
-  tsChart.data.datasets[0].data = roll;
-  tsChart.data.datasets[1].data = pitch;
-  tsChart.data.datasets[2].data = rollPeakPts;
-  tsChart.data.datasets[3].data = pitchPeakPts;
-  tsChart.update("none");
-
-  const rQ = quantiles(roll);
-  const pQ = quantiles(pitch);
-  boxChart.data.datasets[0].data = [rQ, pQ];
-  boxChart.update("none");
-
-  const fr = peakFreq(rollIdx, ts), fp = peakFreq(pitchIdx, ts);
-  $("fr").textContent = (fr ?? 0).toFixed(2);
-  $("fp").textContent = (fp ?? 0).toFixed(2);
-  $("rmed").textContent = isFinite(rQ.median) ? rQ.median.toFixed(2) : "—";
-  $("pmed").textContent = isFinite(pQ.median) ? pQ.median.toFixed(2) : "—";
-  $("wsize").textContent = buf.length + " samples";
-}
-
-// ====== MQTT WSS ======
 function connect(){
   if (!unlocked) return;
-
-  // Make sure charts exist before messages can arrive
-  initCharts();
-
   if (client) { try { client.end(true); } catch(e){} client = null; }
-  const host = $("host").value.trim(), port = $("port").value.trim(), path = $("path").value.trim() || "/mqtt";
+  const host = $("host").value.trim();
+  const port = $("port").value.trim();
+  const path = $("path").value.trim() || "/mqtt";
   const topic = $("topic").value.trim();
   const cid = $("cid").value || ("web-" + Math.random().toString(16).slice(2, 10));
   $("cid").value = cid;
@@ -366,48 +370,28 @@ function connect(){
     username: viewer.user, password: viewer.pass,
     clientId: cid, keepalive: 30, resubscribe: true
   });
-
   client.on("connect", () => { setStatus("connected", true); client.subscribe(topic, { qos: 0 }); });
   client.on("reconnect", () => setStatus("reconnecting…", false));
   client.on("close", () => setStatus("disconnected", false));
   client.on("error", () => setStatus("error", false));
-
   client.on("message", (topic, payload) => {
-    try {
-      const txt = new TextDecoder().decode(payload);
-      $("raw").textContent = txt.slice(0, 500); // show first 500 chars for debugging
-
-      let d = null;
-      try { d = JSON.parse(txt); }
-      catch (e) {
-        $("last").textContent = "non-JSON payload on topic: " + topic;
-        return;
-      }
-
-      let r = d.roll_deg, p = d.pitch_deg;
-      if ((r === undefined || p === undefined) && d.ax !== undefined && d.ay !== undefined && d.az !== undefined) {
+    try{
+      const d = JSON.parse(new TextDecoder().decode(payload));
+      let roll = d.roll_deg, pitch = d.pitch_deg;
+      if ((roll === undefined || pitch === undefined) && d.ax !== undefined) {
         const k = 180 / Math.PI;
-        r = Math.atan2(d.ay, d.az) * k;
-        p = Math.atan2(-d.ax, Math.sqrt(d.ay*d.ay + d.az*d.az)) * k;
+        roll  = Math.atan2(d.ay, d.az) * k;
+        pitch = Math.atan2(-d.ax, Math.sqrt(d.ay*d.ay + d.az*d.az)) * k;
       }
-
-      if (typeof r === "number" && typeof p === "number") {
-        const ts = (typeof d.ts_ms === "number") ? d.ts_ms : Date.now();
-        buf.push({ idx: idx++, ts, roll: r, pitch: p });
-        pruneByWindow(parseInt($("winSec").value,10) || 120);
-
-        // Charts may have been cleared; ensure they exist before update
-        if (!tsChart || !boxChart) initCharts();
-        updateCharts();
-
-        $("last").textContent = `seq=${d.seq ?? "?"}  roll=${r.toFixed(2)}°  pitch=${p.toFixed(2)}°`;
-      } else {
-        $("last").textContent = "JSON payload missing roll/pitch (or ax/ay/az).";
+      if (typeof roll === "number" && typeof pitch === "number") {
+        const t = (typeof d.ts_ms === "number") ? d.ts_ms : (Date.now());
+        pushPoint(t, roll, pitch);
+        $("last").textContent = `seq=${d.seq ?? "?"}  roll=${roll.toFixed(2)}°  pitch=${pitch.toFixed(2)}°`;
+        // recompute peaks and refresh charts
+        recomputePeaks();
+        refreshCharts();
       }
-    } catch(e) {
-      $("last").textContent = "unexpected error in message handler";
-      console.error(e);
-    }
+    } catch(e){ /* ignore parse errors */ }
   });
 }
 
@@ -416,19 +400,14 @@ function disconnect(){
   setStatus("disconnected");
 }
 
-function clearBuffers(clearChartsToo=false){
-  buf.length=0; idx=0; rollPeaks.length=0; pitchPeaks.length=0; srEWMA=null;
-  if (clearChartsToo && tsChart && boxChart) {
-    tsChart.data.labels = [];
-    tsChart.data.datasets.forEach(ds => ds.data = []);
-    tsChart.update("none");
-    boxChart.data.datasets[0].data = [
-      {min:0,q1:0,median:0,q3:0,max:0},
-      {min:0,q1:0,median:0,q3:0,max:0},
-    ];
-    boxChart.update("none");
-  }
-}
+document.getElementById("btnUnlock").addEventListener("click", unlock);
+document.getElementById("btnConnect").addEventListener("click", connect);
+document.getElementById("btnDisconnect").addEventListener("click", disconnect);
+document.getElementById("btnClear").addEventListener("click", () => {
+  xs.length=0; rollArr.length=0; pitchArr.length=0;
+  rollPeaks.length=0; pitchPeaks.length=0;
+  refreshCharts();
+});
 </script>
 </body>
 </html>
