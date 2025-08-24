@@ -8,7 +8,7 @@
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif; }
     body { margin: 16px; }
     h2 { margin: 0 0 12px 0; }
-    .row { display: flex; gap: 16px; flex-wrap: wrap; }
+    .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: stretch; }
     .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; box-shadow: 0 1px 6px rgba(0,0,0,.05); }
     .grow { flex: 1 1 560px; }
     .half { flex: 1 1 320px; min-width: 300px; }
@@ -24,6 +24,11 @@
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .num { font-weight: 600; }
     .small { font-size: 12px; }
+
+    /* --- Fix: give charts explicit container heights --- */
+    .plot-tall  { position: relative; height: 320px; width: 100%; }
+    .plot-short { position: relative; height: 220px; width: 100%; }
+    canvas { display: block; } /* remove inline baseline space */
   </style>
   <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -99,7 +104,7 @@
       </div>
 
       <div class="card grow">
-        <canvas id="chart_ts" height="140"></canvas>
+        <div class="plot-tall"><canvas id="chart_ts"></canvas></div>
         <div class="grid" style="margin-top:8px">
           <div class="card">
             <div><b>Roll Peaks</b></div>
@@ -119,7 +124,7 @@
 
     <div class="row" style="margin-top:16px">
       <div class="card grow">
-        <canvas id="chart_box" height="120"></canvas>
+        <div class="plot-short"><canvas id="chart_box"></canvas></div>
       </div>
     </div>
   </div>
@@ -170,7 +175,6 @@ function quantiles(arr){
   };
   return {min:a[0], q1:q(0.25), median:q(0.5), q3:q(0.75), max:a[a.length-1]};
 }
-// Simple prominence-based peak detection
 function detectPeaks(values, times, minDistMs, minProm){
   const n = values.length;
   if (n < 3) return [];
@@ -178,15 +182,13 @@ function detectPeaks(values, times, minDistMs, minProm){
   let lastPeakIdx = -1;
   for (let i=1;i<n-1;i++){
     const v = values[i];
-    if (v <= values[i-1] || v <= values[i+1]) continue; // local max
-    // local baseline: minimum of neighbors within a small window
-    const w = 5; // +/- window in samples for baseline
+    if (v <= values[i-1] || v <= values[i+1]) continue;
+    const w = 5;
     const i0 = Math.max(0, i-w), i1 = Math.min(n-1, i+w);
     let base = values[i0];
     for (let j=i0+1;j<=i1;j++) base = Math.min(base, values[j]);
     const prom = v - base;
     if (prom < minProm) continue;
-    // min distance
     if (lastPeakIdx >= 0) {
       const dt = times[i] - times[lastPeakIdx];
       if (dt < minDistMs) continue;
@@ -203,7 +205,7 @@ let unlocked = false;
 let viewer = { user:null, pass:null };
 let chartTS = null, chartBox = null;
 
-const MAX_POINTS = 1200; // ~2 minutes at 10 Hz
+const MAX_POINTS = 1200;
 const xs = [], rollArr = [], pitchArr = [];
 let rollPeaks = [], pitchPeaks = [];
 
@@ -217,18 +219,18 @@ function makeTimeseries(){
       datasets: [
         { label: "roll (deg)",  data: [], yAxisID: "y", pointRadius: 0, borderWidth: 2, tension: 0.15 },
         { label: "pitch (deg)", data: [], yAxisID: "y", pointRadius: 0, borderWidth: 2, tension: 0.15 },
-        // peak markers (scatter overlays)
         { label: "roll peaks",  type:"scatter", data: [], yAxisID: "y", pointRadius: 5, showLine: false },
         { label: "pitch peaks", type:"scatter", data: [], yAxisID: "y", pointRadius: 5, showLine: false }
       ]
     },
     options: {
-      animation: false, responsive: true, maintainAspectRatio: false,
+      animation: false, responsive: true, maintainAspectRatio: false,  /* critical: respects .plot-tall height */
       scales: {
         x: { title:{display:true,text:"samples (latest right)"}, ticks:{ maxTicksLimit: 10 } },
         y: { title:{display:true,text:"degrees"} }
       },
-      plugins: { legend: { position: "bottom" } }
+      plugins: { legend: { position: "bottom" } },
+      resizeDelay: 100
     }
   });
 }
@@ -248,7 +250,7 @@ function makeBoxplot(){
       }]
     },
     options: {
-      responsive: true, maintainAspectRatio: false,
+      responsive: true, maintainAspectRatio: false, /* critical: respects .plot-short height */
       plugins: { legend: { position: "bottom" } },
       scales: { y: { title:{display:true,text:"degrees"} } }
     }
@@ -262,25 +264,19 @@ function pushPoint(t, r, p){
 }
 
 function refreshCharts(){
-  // Update time series
   const labels = xs.map((_,i)=>i);
   chartTS.data.labels = labels;
   chartTS.data.datasets[0].data = rollArr;
   chartTS.data.datasets[1].data = pitchArr;
-
-  // Peaks -> scatter points (x=index, y=value)
   chartTS.data.datasets[2].data = rollPeaks.map(pk => ({x: labels.length - (xs.length - pk.idx), y: pk.v}));
   chartTS.data.datasets[3].data = pitchPeaks.map(pk => ({x: labels.length - (xs.length - pk.idx), y: pk.v}));
-
   chartTS.update("none");
 
-  // Update boxplots
   const rb = quantiles(rollArr);
   const pb = quantiles(pitchArr);
   chartBox.data.datasets[0].data = [rb, pb];
   chartBox.update("none");
 
-  // Update numbers
   const rStats = meanStd(rollArr);
   const pStats = meanStd(pitchArr);
   $("rollMean").textContent  = isFinite(rStats.mean)? rStats.mean.toFixed(2) : "–";
@@ -293,16 +289,14 @@ function refreshCharts(){
   $("rollPk").textContent    = rollPeaks.length;
   $("pitchPk").textContent   = pitchPeaks.length;
 
-  // Frequency from peak-to-peak over last window
   function freqFromPeaks(peaks){
     if (peaks.length < 2) return NaN;
     let sum=0, cnt=0;
     for (let i=1;i<peaks.length;i++){
-      const dt = (peaks[i].t - peaks[i-1].t)/1000; // seconds
+      const dt = (peaks[i].t - peaks[i-1].t)/1000;
       if (dt>0) { sum += dt; cnt++; }
     }
-    if (cnt===0) return NaN;
-    return 1/(sum/cnt);
+    return cnt? 1/(sum/cnt) : NaN;
   }
   const fR = freqFromPeaks(rollPeaks);
   const fP = freqFromPeaks(pitchPeaks);
@@ -315,7 +309,6 @@ function recomputePeaks(){
   const minDist = parseFloat($("minDist").value || "300");
   const minProm = parseFloat($("minProm").value || "1.0");
 
-  // Use full buffers (already limited by MAX_POINTS). If you want exact time window, trim by timestamp:
   const startT = xs.length ? (xs[xs.length-1] - winSec*1000) : 0;
   let s = 0; while (s < xs.length && xs[s] < startT) s++;
   const valuesR = rollArr.slice(s), valuesP = pitchArr.slice(s);
@@ -324,7 +317,6 @@ function recomputePeaks(){
   rollPeaks  = detectPeaks(valuesR, times, minDist, minProm);
   pitchPeaks = detectPeaks(valuesP, times, minDist, minProm);
 
-  // Adjust stored indices to global arrays (we'll re-map to chart x in refresh)
   if (s>0) {
     rollPeaks.forEach(pk => pk.idx += s);
     pitchPeaks.forEach(pk => pk.idx += s);
@@ -387,7 +379,6 @@ function connect(){
         const t = (typeof d.ts_ms === "number") ? d.ts_ms : (Date.now());
         pushPoint(t, roll, pitch);
         $("last").textContent = `seq=${d.seq ?? "?"}  roll=${roll.toFixed(2)}°  pitch=${pitch.toFixed(2)}°`;
-        // recompute peaks and refresh charts
         recomputePeaks();
         refreshCharts();
       }
