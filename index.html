@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-  <title>Roll & Pitch — Live v1.0.2 (2025-08-24)</title>
+  <title>Roll & Pitch — Live v1.0.3 (2025-08-24)</title>
   <meta name="theme-color" content="#0b1220"/>
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -45,6 +45,8 @@
     .half { flex: 1 1 320px; min-width: 300px; }
 
     .small { font-size: 12px; color: var(--muted); }
+    .tiny { font-size: 11px; color: var(--muted); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
     .num { font-weight:700; font-size: clamp(22px, 5.8vw, 34px); line-height: 1.15; }
     .num-sm { font-weight:700; font-size: clamp(18px, 4.6vw, 28px); }
     .btns { display:flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
@@ -60,16 +62,13 @@
     .plot { position:relative; height: 45vh; min-height: 280px; width: 100%; }
     canvas { display:block; }
 
-    /* Record button blinking */
+    /* Recording blink */
     .record-btn { border-color:var(--border); }
     .recording { background:#4a1111; border-color:#ff7a7a; color:#fff; }
     .recording::before { content:"● "; color:var(--rec); }
-    @keyframes pulse {
-      0% { box-shadow: 0 0 0 0 rgba(255,77,77,0.85); }
-      70% { box-shadow: 0 0 0 12px rgba(255,77,77,0); }
-      100% { box-shadow: 0 0 0 0 rgba(255,77,77,0); }
-    }
+    @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(255,77,77,0.85); } 70% { box-shadow: 0 0 0 12px rgba(255,77,77,0); } 100% { box-shadow: 0 0 0 0 rgba(255,77,77,0); } }
     .blink { animation: pulse 1s infinite; }
+
     .range-row { display:grid; grid-template-columns: 1fr auto; gap:10px; align-items:center; }
     input[type="range"] { width: 100%; accent-color: var(--accent); }
   </style>
@@ -82,7 +81,7 @@
   <div class="topbar">
     <div class="app-title">Roll &amp; Pitch — Live</div>
     <div class="spacer"></div>
-    <div class="ver">v1.0.2 (2025-08-24)</div>
+    <div class="ver">v1.0.3 (2025-08-24)</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -113,7 +112,7 @@
         <div class="card half">
           <div style="font-weight:700; margin-bottom:8px;">Now</div>
           <div class="small">Status: <span id="status" class="bad">disconnected</span></div>
-          <div class="small">WSS: <span id="url" class="num-sm"></span></div>
+          <div class="tiny mono" style="word-break:break-all;">WSS: <span id="url"></span></div>
           <div class="small" id="last"></div>
           <div class="grid" style="margin-top:10px">
             <div>
@@ -202,11 +201,21 @@
         </div>
 
         <div class="card half">
-          <div style="font-weight:700; margin-bottom:8px;">Analysis Window</div>
+          <div style="font-weight:700; margin-bottom:8px;">Windows</div>
           <div class="grid">
-            <div class="range-row" style="grid-column:1/-1;">
-              <input id="winSecRange" type="range" min="5" max="600" step="5" value="60"/>
-              <input id="winSec" type="number" min="5" max="600" step="5" value="60" style="width:90px;"/>
+            <div style="grid-column:1/-1;">
+              <label>Timeseries View Window (seconds)</label>
+              <div class="range-row">
+                <input id="viewSecRange" type="range" min="5" max="600" step="5" value="10"/>
+                <input id="viewSec" type="number" min="5" max="600" step="5" value="10" style="width:90px;"/>
+              </div>
+            </div>
+            <div style="grid-column:1/-1;">
+              <label>Analysis Window (seconds) — used for stats & peak detection</label>
+              <div class="range-row">
+                <input id="winSecRange" type="range" min="5" max="600" step="5" value="60"/>
+                <input id="winSec" type="number" min="5" max="600" step="5" value="60" style="width:90px;"/>
+              </div>
             </div>
             <div>
               <label>Min peak distance (ms)</label>
@@ -229,7 +238,7 @@
 
   <script>
   // ====== VERSION ======
-  const APP_VERSION = "v1.0.2 (2025-08-24)";
+  const APP_VERSION = "v1.0.3 (2025-08-24)";
 
   // ====== Tabs ======
   const tabButtons = document.querySelectorAll('.tabbtn');
@@ -263,7 +272,7 @@
   }
 
   // ====== CONFIG ======
-  const ENCRYPTED_CREDS = "eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9"; // replace via encrypt.html
+  const ENCRYPTED_CREDS = "PASTE_CIPHERTEXT_HERE"; // replace via encrypt.html
 
   // ====== Helpers ======
   const $ = (id) => document.getElementById(id);
@@ -327,6 +336,79 @@
     });
   }
 
+  // ====== Timeseries View Window control ======
+  const viewRange = $('viewSecRange'); const viewNum = $('viewSec');
+  let currentViewSec = parseInt(viewNum.value || '10', 10);
+  function applyViewWindow(val){
+    currentViewSec = Math.max(5, Math.min(600, parseInt(val||'10',10)));
+    viewRange.value = currentViewSec; viewNum.value = currentViewSec;
+    updateAxisRange();
+  }
+  function updateAxisRange(){
+    if (!chartTS) return;
+    if (t0===null) { chartTS.options.scales.x.min = 0; chartTS.options.scales.x.max = currentViewSec; chartTS.update('none'); return; }
+    const nowMs = timesMs.length ? timesMs[timesMs.length-1] : Date.now();
+    const nowSec = (nowMs - t0)/1000;
+    const xmin = Math.max(0, nowSec - currentViewSec);
+    const xmax = Math.max(currentViewSec, nowSec);
+    chartTS.options.scales.x.min = xmin;
+    chartTS.options.scales.x.max = xmax;
+    chartTS.update('none');
+  }
+  viewRange.addEventListener('input', e => applyViewWindow(e.target.value));
+  viewNum.addEventListener('change', e => applyViewWindow(e.target.value));
+
+  // ====== Analysis Window control (stats/peaks) ======
+  const winRange = $('winSecRange'); const winNum = $('winSec');
+  function applyWindow(val){
+    const v = Math.max(5, Math.min(600, parseInt(val||'60',10)));
+    winRange.value = v; winNum.value = v;
+    const now = timesMs.length ? timesMs[timesMs.length-1] : Date.now();
+    recomputePeaksAndStats(now);
+    if (chartTS) chartTS.update('none');
+  }
+  winRange.addEventListener('input', e => applyWindow(e.target.value));
+  winNum.addEventListener('change', e => applyWindow(e.target.value));
+
+  // ====== Recording helpers ======
+  function fmt2(n){ return n.toString().padStart(2,'0'); }
+  function csvEscape(s){ return String(s).replace(/"/g,'""'); }
+  function startRecording(){
+    recActive = true; recRows = [];
+    recStartedAt = new Date();
+    btnRecord.textContent = "Stop & Save";
+    btnRecord.classList.add('recording','blink');
+    recInfo.textContent = "Recording… 0 samples";
+    log("recording started");
+  }
+  function stopRecordingAndSave(){
+    recActive = false;
+    btnRecord.textContent = "Start Recording";
+    btnRecord.classList.remove('recording','blink');
+    if (!recRows.length){
+      recInfo.textContent = "No samples recorded.";
+      log("no samples to save");
+      return;
+    }
+    const header = ['timestamp_ms','iso_time','elapsed_s','seq','roll_deg','pitch_deg'];
+    const lines = [header.join(',')];
+    for (const r of recRows){
+      const iso = new Date(r.t).toISOString();
+      lines.push([ r.t, `"${csvEscape(iso)}"`, ( (t0!==null)? ((r.t - t0)/1000).toFixed(3) : '' ), (r.seq ?? ''), r.roll.toFixed(6), r.pitch.toFixed(6) ].join(','));
+    }
+    const csv = lines.join('\n');
+    const blob = new Blob([csv], {type:'text/csv'});
+    const d = recStartedAt || new Date();
+    const fname = `rollpitch_${d.getFullYear()}-${fmt2(d.getMonth()+1)}-${fmt2(d.getDate())}_${fmt2(d.getHours())}-${fmt2(d.getMinutes())}-${fmt2(d.getSeconds())}.csv`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = fname; document.body.appendChild(a); a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    recInfo.textContent = `Saved ${recRows.length} samples to ${fname}`;
+    log(`saved CSV (${recRows.length} rows)`);
+  }
+  $('btnRecord').addEventListener('click', ()=>{ if (!recActive) startRecording(); else stopRecordingAndSave(); });
+
+  // ====== Core logic ======
   function pruneOld(nowMs){
     const keepMs = Math.max(parseFloat($('winSec').value||'60')*1000, MAX_KEEP_SEC*1000);
     while (timesMs.length && timesMs[0] < nowMs - keepMs) {
@@ -371,70 +453,6 @@
     $('pitchNow').textContent= (lastP!==undefined)? lastP.toFixed(2) : '–';
   }
 
-  // ====== Window controls (slider + number sync) ======
-  const winRange = $('winSecRange'); const winNum = $('winSec');
-  function applyWindow(val){
-    const v = Math.max(5, Math.min(600, parseInt(val||'60',10)));
-    winRange.value = v; winNum.value = v;
-    const now = timesMs.length ? timesMs[timesMs.length-1] : Date.now();
-    recomputePeaksAndStats(now);
-    if (chartTS) chartTS.update('none');
-  }
-  winRange.addEventListener('input', e => applyWindow(e.target.value));
-  winNum.addEventListener('change', e => applyWindow(e.target.value));
-
-  // ====== Recording helpers ======
-  function fmt2(n){ return n.toString().padStart(2,'0'); }
-  function csvEscape(s){ return String(s).replace(/"/g,'""'); }
-  function startRecording(){
-    recActive = true; recRows = [];
-    recStartedAt = new Date();
-    btnRecord.textContent = "Stop & Save";
-    btnRecord.classList.add('recording','blink');
-    recInfo.textContent = "Recording… 0 samples";
-    log("recording started");
-  }
-  function stopRecordingAndSave(){
-    recActive = false;
-    btnRecord.textContent = "Start Recording";
-    btnRecord.classList.remove('recording','blink');
-    if (!recRows.length){
-      recInfo.textContent = "No samples recorded.";
-      log("no samples to save");
-      return;
-    }
-    // Build CSV
-    const header = ['timestamp_ms','iso_time','elapsed_s','seq','roll_deg','pitch_deg'];
-    const lines = [header.join(',')];
-    for (const r of recRows){
-      const iso = new Date(r.t).toISOString();
-      lines.push([
-        r.t,
-        `"${csvEscape(iso)}"`,
-        ( (t0!==null)? ((r.t - t0)/1000).toFixed(3) : '' ),
-        (r.seq ?? ''),
-        r.roll.toFixed(6),
-        r.pitch.toFixed(6)
-      ].join(','));
-    }
-    const csv = lines.join('\n');
-    const blob = new Blob([csv], {type:'text/csv'});
-    // filename
-    const d = recStartedAt || new Date();
-    const fname = `rollpitch_${d.getFullYear()}-${fmt2(d.getMonth()+1)}-${fmt2(d.getDate())}_${fmt2(d.getHours())}-${fmt2(d.getMinutes())}-${fmt2(d.getSeconds())}.csv`;
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = fname;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-    recInfo.textContent = `Saved ${recRows.length} samples to ${fname}`;
-    log(`saved CSV (${recRows.length} rows)`);
-  }
-  btnRecord.addEventListener('click', ()=>{
-    if (!recActive) startRecording(); else stopRecordingAndSave();
-  });
-
   // ====== Unlock/Connect ======
   document.getElementById('btnUnlock').addEventListener('click', async ()=>{
     const pwd = $('pw').value;
@@ -451,7 +469,8 @@
       chartTS = makeTimeseries();
       setStatus('unlocked — not connected', false);
       showTab('plot');
-      applyWindow(winNum.value);
+      applyWindow($('winSec').value);
+      applyViewWindow($('viewSec').value); // default 10s
       if ($('autoconn').checked) connect();
     } catch(e) {
       $('unlockMsg').textContent='Wrong password or corrupted ciphertext.';
@@ -488,13 +507,9 @@
         rollSeries.push({x:(t - t0)/1000, y: roll}); pitchSeries.push({x:(t - t0)/1000, y: pitch});
         pruneOld(t);
         $('last').textContent = `seq=${d.seq ?? '?' }  roll=${roll.toFixed(2)}°  pitch=${pitch.toFixed(2)}°`;
-        // record row if active
-        if (recActive) {
-          recRows.push({ t, seq: d.seq, roll, pitch });
-          recInfo.textContent = `Recording… ${recRows.length} samples`;
-        }
+        if (recActive) { recRows.push({ t, seq: d.seq, roll, pitch }); recInfo.textContent = `Recording… ${recRows.length} samples`; }
         recomputePeaksAndStats(t);
-        chartTS.update('none');
+        updateAxisRange(); // keep chart scrolled to latest respecting view window
       } catch(e) { log('parse error: '+e); }
     });
   }
@@ -507,7 +522,8 @@
   document.getElementById('btnClear').addEventListener('click', ()=>{
     timesMs.length=0; rollVals.length=0; pitchVals.length=0;
     rollSeries.length=0; pitchSeries.length=0; t0=null;
-    chartTS.update('none'); log('cleared');
+    if (chartTS){ chartTS.data.datasets[2].data = []; chartTS.data.datasets[3].data = []; }
+    updateAxisRange(); log('cleared');
   });
   </script>
 </body>
