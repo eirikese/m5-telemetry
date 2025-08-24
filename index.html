@@ -11,12 +11,12 @@
     .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: stretch; }
     .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; box-shadow: 0 1px 6px rgba(0,0,0,.05); }
     .grow { flex: 1 1 560px; }
-    .half { flex: 1 1 360px; min-width: 320px; }
+    .half { flex: 1 1 320px; min-width: 300px; }
     .muted { color: #666; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; }
     .btns { display:flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     button { padding: 8px 10px; border-radius: 8px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
-    input[type="text"], input[type="number"], input[type="password"] { width: 100%; padding: 8px 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 8px; }
+    input { width: 100%; padding: 8px 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 8px; }
     label { font-size: 12px; color: #555; margin-bottom: 4px; display:block; }
     .hidden { display: none; }
     .ok { color: #067d00; }
@@ -24,17 +24,15 @@
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .num { font-weight: 600; }
     .small { font-size: 12px; }
-    .sl { display:grid; grid-template-columns: 1fr auto; gap: 8px; align-items:center; }
-    .sl input[type="range"] { width: 100%; }
-    /* Fixed plot heights */
+
+    /* Explicit container heights for charts */
     .plot-tall  { position: relative; height: 340px; width: 100%; }
     .plot-short { position: relative; height: 240px; width: 100%; }
     canvas { display: block; }
   </style>
-  <!-- libs -->
-  <script src="https://cdn.jsdelivr.net/npm/mqtt@5/dist/mqtt.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot@4.3.3/build/index.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot@4.3.0/build/index.umd.min.js"></script>
 </head>
 <body>
   <h2>Roll &amp; Pitch — Live Web Plot</h2>
@@ -77,26 +75,19 @@
             <label>Client ID (auto)</label>
             <input id="cid" readonly/>
           </div>
-        </div>
-
-        <div class="card" style="margin-top:12px">
-          <div class="sl">
+          <div>
             <label>Window (seconds)</label>
-            <span class="mono" id="winSecVal">120</span>
-            <input id="winSec" type="range" min="10" max="600" step="10" value="120"/>
+            <input id="winSec" value="120"/>
           </div>
-          <div class="sl">
+          <div>
             <label>Min peak distance (ms)</label>
-            <span class="mono" id="minDistVal">300</span>
-            <input id="minDist" type="range" min="100" max="3000" step="50" value="300"/>
+            <input id="minDist" value="300"/>
           </div>
-          <div class="sl">
+          <div>
             <label>Min prominence (deg)</label>
-            <span class="mono" id="minPromVal">1.0</span>
-            <input id="minProm" type="range" min="0.2" max="10" step="0.1" value="1.0"/>
+            <input id="minProm" value="1.0"/>
           </div>
         </div>
-
         <div class="btns">
           <button id="btnConnect">Connect</button>
           <button id="btnDisconnect">Disconnect</button>
@@ -107,6 +98,9 @@
           <div class="muted small">WSS URL: <span class="mono" id="url"></span></div>
           <div class="muted small" id="last"></div>
         </div>
+        <p class="muted small" style="margin-top:8px">
+          Uses a <b>read‑only</b> viewer credential (decrypted in-browser) limited to your topic. No backend required.
+        </p>
       </div>
 
       <div class="card grow">
@@ -136,16 +130,6 @@
   </div>
 
 <script>
-// Register boxplot plugin explicitly (UMD)
-if (window['chartjs-chart-boxplot']) {
-  const bp = window['chartjs-chart-boxplot'];
-  if (bp.BoxPlotController && bp.BoxAndWhiskers) {
-    Chart.register(bp.BoxPlotController, bp.BoxAndWhiskers);
-  } else if (bp.default) {
-    Chart.register(bp.default);
-  }
-}
-
 // ====== AES-GCM helpers (Web Crypto) ======
 const b64d = (b64) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 async function deriveKey(password, salt) {
@@ -179,18 +163,6 @@ function meanStd(arr){
   const v = arr.reduce((a,b)=>a+(b-m)*(b-m),0)/arr.length;
   return {mean:m, std:Math.sqrt(v)};
 }
-function quantiles(arr){
-  if (!arr.length) return {min:NaN,q1:NaN,median:NaN,q3:NaN,max:NaN};
-  const a = Array.from(arr).sort((x,y)=>x-y);
-  const q = p => {
-    if (a.length===1) return a[0];
-    const pos = (a.length - 1) * p;
-    const base = Math.floor(pos);
-    const rest = pos - base;
-    return (rest===0) ? a[base] : a[base] + rest*(a[base+1]-a[base]);
-  };
-  return {min:a[0], q1:q(0.25), median:q(0.5), q3:q(0.75), max:a[a.length-1]};
-}
 function detectPeaks(values, times, minDistMs, minProm){
   const n = values.length;
   if (n < 3) return [];
@@ -221,12 +193,10 @@ let unlocked = false;
 let viewer = { user:null, pass:null };
 let chartTS = null, chartBox = null;
 
-const MAX_POINTS = 3000; // plenty; we trim by time window
-let t0 = null;           // first timestamp (ms) to make x relative
-const xs = [];           // ms timestamps
-const rollArr = [], pitchArr = [];
-const rollPts = [], pitchPts = []; // {x: seconds since t0, y: value}
+const MAX_POINTS = 1200;
+const xs = [], rollArr = [], pitchArr = [];
 let rollPeaks = [], pitchPeaks = [];
+let winStartIdx = 0;
 
 // ====== Charts ======
 function makeTimeseries(){
@@ -234,17 +204,18 @@ function makeTimeseries(){
   return new Chart(ctx, {
     type: "line",
     data: {
+      labels: [],
       datasets: [
-        { label: "roll (deg)",  data: [], yAxisID: "y", parsing:false, pointRadius: 0, borderWidth: 2, tension: 0.1 },
-        { label: "pitch (deg)", data: [], yAxisID: "y", parsing:false, pointRadius: 0, borderWidth: 2, tension: 0.1 },
-        { label: "roll peaks",  type:"scatter", data: [], yAxisID: "y", parsing:false, pointRadius: 5, showLine: false },
-        { label: "pitch peaks", type:"scatter", data: [], yAxisID: "y", parsing:false, pointRadius: 5, showLine: false }
+        { label: "roll (deg)",  data: [], yAxisID: "y", pointRadius: 0, borderWidth: 2, tension: 0.15 },
+        { label: "pitch (deg)", data: [], yAxisID: "y", pointRadius: 0, borderWidth: 2, tension: 0.15 },
+        { label: "roll peaks",  type:"scatter", data: [], yAxisID: "y", pointRadius: 5, showLine: false },
+        { label: "pitch peaks", type:"scatter", data: [], yAxisID: "y", pointRadius: 5, showLine: false }
       ]
     },
     options: {
       animation: false, responsive: true, maintainAspectRatio: false,
       scales: {
-        x: { type: "linear", title:{display:true,text:"time (s)"} },
+        x: { title:{display:true,text:"samples (latest right)"}, ticks:{ maxTicksLimit: 10 } },
         y: { title:{display:true,text:"degrees"} }
       },
       plugins: { legend: { position: "bottom" } },
@@ -261,10 +232,7 @@ function makeBoxplot(){
       labels: ["roll", "pitch"],
       datasets: [{
         label: "distribution (window)",
-        data: [
-          {min:0,q1:0,median:0,q3:0,max:0},
-          {min:0,q1:0,median:0,q3:0,max:0}
-        ]
+        data: [[], []] // plugin computes quartiles from arrays
       }]
     },
     options: {
@@ -276,66 +244,41 @@ function makeBoxplot(){
 }
 
 // ====== App logic ======
-function trimByWindow(){
+function pushPoint(t, r, p){
+  xs.push(t); rollArr.push(r); pitchArr.push(p);
+  if (xs.length > MAX_POINTS) { xs.shift(); rollArr.shift(); pitchArr.shift(); if (winStartIdx>0) winStartIdx--; }
+}
+
+function recomputeWindow(){
   const winSec = parseFloat($("winSec").value || "120");
-  const cutoffMs = (xs.length? xs[xs.length-1] : 0) - winSec*1000;
-  while (xs.length && xs[0] < cutoffMs) {
-    xs.shift(); rollArr.shift(); pitchArr.shift();
-    // remove first point in rollPts/pitchPts too
-    if (rollPts.length) rollPts.shift();
-    if (pitchPts.length) pitchPts.shift();
-  }
+  const startT = xs.length ? (xs[xs.length-1] - winSec*1000) : 0;
+  let s = 0; while (s < xs.length && xs[s] < startT) s++;
+  winStartIdx = s;
 }
 
-function pushPoint(t_ms, r, p){
-  if (t0 === null) t0 = t_ms;
-  const xSec = (t_ms - t0) / 1000.0;
+function recomputePeaksAndStats(){
+  recomputeWindow();
+  const minDist = parseFloat($("minDist").value || "300");
+  const minProm = parseFloat($("minProm").value || "1.0");
 
-  xs.push(t_ms); rollArr.push(r); pitchArr.push(p);
-  rollPts.push({x:xSec, y:r}); pitchPts.push({x:xSec, y:p});
+  const valuesR = rollArr.slice(winStartIdx), valuesP = pitchArr.slice(winStartIdx);
+  const times   = xs.slice(winStartIdx);
 
-  // cap absolute max for memory safety
-  if (xs.length > MAX_POINTS) {
-    xs.splice(0, xs.length - MAX_POINTS);
-    rollArr.splice(0, rollArr.length - MAX_POINTS);
-    pitchArr.splice(0, pitchArr.length - MAX_POINTS);
-    rollPts.splice(0, rollPts.length - MAX_POINTS);
-    pitchPts.splice(0, pitchPts.length - MAX_POINTS);
-  }
-}
+  rollPeaks  = detectPeaks(valuesR, times, minDist, minProm);
+  pitchPeaks = detectPeaks(valuesP, times, minDist, minProm);
+  // shift to global indices
+  rollPeaks.forEach(pk => pk.idx += winStartIdx);
+  pitchPeaks.forEach(pk => pk.idx += winStartIdx);
 
-function refreshCharts(){
-  if (!chartTS || !chartBox) return;
-
-  // Update time series datasets
-  chartTS.data.datasets[0].data = rollPts.slice();
-  chartTS.data.datasets[1].data = pitchPts.slice();
-
-  // Peaks -> scatter with x = (t - t0)/1000
-  const toX = (t) => (t0===null? 0 : (t - t0)/1000.0);
-  chartTS.data.datasets[2].data = rollPeaks.map(pk => ({x: toX(pk.t), y: pk.v}));
-  chartTS.data.datasets[3].data = pitchPeaks.map(pk => ({x: toX(pk.t), y: pk.v}));
-  chartTS.update("none");
-
-  // Boxplots from current window arrays
-  const rb = quantiles(rollArr);
-  const pb = quantiles(pitchArr);
-  chartBox.data.datasets[0].data = [rb, pb];
-  chartBox.update("none");
-
-  // Numbers panel
-  const rStats = meanStd(rollArr);
-  const pStats = meanStd(pitchArr);
+  // Stats on window
+  const rStats = meanStd(valuesR);
+  const pStats = meanStd(valuesP);
   $("rollMean").textContent  = isFinite(rStats.mean)? rStats.mean.toFixed(2) : "–";
   $("rollStd").textContent   = isFinite(rStats.std)?  rStats.std.toFixed(2)  : "–";
   $("pitchMean").textContent = isFinite(pStats.mean)? pStats.mean.toFixed(2) : "–";
   $("pitchStd").textContent  = isFinite(pStats.std)?  pStats.std.toFixed(2)  : "–";
-  const lastR = rollArr[rollArr.length-1], lastP = pitchArr[pitchArr.length-1];
-  $("rollNow").textContent   = (lastR!==undefined)? lastR.toFixed(2) : "–";
-  $("pitchNow").textContent  = (lastP!==undefined)? lastP.toFixed(2) : "–";
-  $("rollPk").textContent    = rollPeaks.length;
-  $("pitchPk").textContent   = pitchPeaks.length;
 
+  // Frequency
   function freqFromPeaks(peaks){
     if (peaks.length < 2) return NaN;
     let sum=0, cnt=0;
@@ -349,27 +292,24 @@ function refreshCharts(){
   const fP = freqFromPeaks(pitchPeaks);
   $("rollHz").textContent  = isFinite(fR)? fR.toFixed(2) : "–";
   $("pitchHz").textContent = isFinite(fP)? fP.toFixed(2) : "–";
+
+  // Boxplot data: arrays (plugin will compute quartiles)
+  chartBox.data.datasets[0].data = [valuesR, valuesP];
 }
 
-function recomputePeaks(){
-  const winSec = parseFloat($("winSec").value || "120");
-  const minDist = parseFloat($("minDist").value || "300");
-  const minProm = parseFloat($("minProm").value || "1.0");
+function refreshCharts(){
+  const labels = xs.map((_,i)=>i);
+  chartTS.data.labels = labels;
+  chartTS.data.datasets[0].data = rollArr;
+  chartTS.data.datasets[1].data = pitchArr;
+  chartTS.data.datasets[2].data = rollPeaks.map(pk => ({x: labels.length - (xs.length - pk.idx), y: pk.v}));
+  chartTS.data.datasets[3].data = pitchPeaks.map(pk => ({x: labels.length - (xs.length - pk.idx), y: pk.v}));
+  chartTS.update("none");
+  chartBox.update("none");
 
-  // Consider only data within the window
-  const startT = xs.length ? (xs[xs.length-1] - winSec*1000) : 0;
-  let s = 0; while (s < xs.length && xs[s] < startT) s++;
-  const valuesR = rollArr.slice(s), valuesP = pitchArr.slice(s);
-  const times   = xs.slice(s);
-
-  rollPeaks  = detectPeaks(valuesR, times, minDist, minProm);
-  pitchPeaks = detectPeaks(valuesP, times, minDist, minProm);
-
-  // Offset indices back to global arrays (we use times anyway)
-  if (s>0) {
-    rollPeaks.forEach(pk => pk.idx += s);
-    pitchPeaks.forEach(pk => pk.idx += s);
-  }
+  const lastR = rollArr[rollArr.length-1], lastP = pitchArr[pitchArr.length-1];
+  $("rollNow").textContent   = (lastR!==undefined)? lastR.toFixed(2) : "–";
+  $("pitchNow").textContent  = (lastP!==undefined)? lastP.toFixed(2) : "–";
 }
 
 async function unlock(){
@@ -389,7 +329,6 @@ async function unlock(){
     chartTS = makeTimeseries();
     chartBox = makeBoxplot();
     setStatus("unlocked — not connected");
-    bindSliders(); // initialize slider labels
   } catch (e) {
     $("unlockMsg").textContent = "Wrong password or corrupted ciphertext.";
   }
@@ -415,7 +354,7 @@ function connect(){
   client.on("connect", () => { setStatus("connected", true); client.subscribe(topic, { qos: 0 }); });
   client.on("reconnect", () => setStatus("reconnecting…", false));
   client.on("close", () => setStatus("disconnected", false));
-  client.on("error", (e) => { console.error(e); setStatus("error", false); });
+  client.on("error", () => setStatus("error", false));
   client.on("message", (topic, payload) => {
     try{
       const d = JSON.parse(new TextDecoder().decode(payload));
@@ -428,12 +367,11 @@ function connect(){
       if (typeof roll === "number" && typeof pitch === "number") {
         const t = (typeof d.ts_ms === "number") ? d.ts_ms : (Date.now());
         pushPoint(t, roll, pitch);
-        trimByWindow();
         $("last").textContent = `seq=${d.seq ?? "?"}  roll=${roll.toFixed(2)}°  pitch=${pitch.toFixed(2)}°`;
-        recomputePeaks();
+        recomputePeaksAndStats();
         refreshCharts();
       }
-    } catch(e){ console.warn("parse error", e); }
+    } catch(e){ /* ignore parse errors */ }
   });
 }
 
@@ -442,25 +380,13 @@ function disconnect(){
   setStatus("disconnected");
 }
 
-// Slider bindings
-function bindSliders(){
-  const sWin = $("winSec"), sMinD = $("minDist"), sMinP = $("minProm");
-  const vWin = $("winSecVal"), vMinD = $("minDistVal"), vMinP = $("minPromVal");
-  const upd = () => { vWin.textContent=sWin.value; vMinD.textContent=sMinD.value; vMinP.textContent=sMinP.value; recomputePeaks(); refreshCharts(); };
-  sWin.addEventListener("input", upd);
-  sMinD.addEventListener("input", upd);
-  sMinP.addEventListener("input", upd);
-  upd();
-}
-
 document.getElementById("btnUnlock").addEventListener("click", unlock);
 document.getElementById("btnConnect").addEventListener("click", connect);
 document.getElementById("btnDisconnect").addEventListener("click", disconnect);
 document.getElementById("btnClear").addEventListener("click", () => {
-  t0 = null;
   xs.length=0; rollArr.length=0; pitchArr.length=0;
-  rollPts.length=0; pitchPts.length=0;
-  rollPeaks.length=0; pitchPeaks.length=0;
+  rollPeaks.length=0; pitchPeaks.length=0; winStartIdx=0;
+  chartBox.data.datasets[0].data = [[],[]];
   refreshCharts();
 });
 </script>
