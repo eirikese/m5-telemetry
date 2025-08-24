@@ -34,7 +34,7 @@
   <!-- libs -->
   <script src="https://cdn.jsdelivr.net/npm/mqtt@5/dist/mqtt.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot@4.3.3/build/index.umd.min.js"></script>
 </head>
 <body>
   <h2>Roll &amp; Pitch — Live Web Plot</h2>
@@ -107,9 +107,6 @@
           <div class="muted small">WSS URL: <span class="mono" id="url"></span></div>
           <div class="muted small" id="last"></div>
         </div>
-        <p class="muted small" style="margin-top:8px">
-          Uses a <b>read‑only</b> viewer credential (decrypted in-browser) limited to your topic. No backend required.
-        </p>
       </div>
 
       <div class="card grow">
@@ -139,6 +136,16 @@
   </div>
 
 <script>
+// Register boxplot plugin explicitly (UMD)
+if (window['chartjs-chart-boxplot']) {
+  const bp = window['chartjs-chart-boxplot'];
+  if (bp.BoxPlotController && bp.BoxAndWhiskers) {
+    Chart.register(bp.BoxPlotController, bp.BoxAndWhiskers);
+  } else if (bp.default) {
+    Chart.register(bp.default);
+  }
+}
+
 // ====== AES-GCM helpers (Web Crypto) ======
 const b64d = (b64) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 async function deriveKey(password, salt) {
@@ -214,8 +221,11 @@ let unlocked = false;
 let viewer = { user:null, pass:null };
 let chartTS = null, chartBox = null;
 
-const MAX_POINTS = 1200;
-const xs = [], rollArr = [], pitchArr = [];
+const MAX_POINTS = 3000; // plenty; we trim by time window
+let t0 = null;           // first timestamp (ms) to make x relative
+const xs = [];           // ms timestamps
+const rollArr = [], pitchArr = [];
+const rollPts = [], pitchPts = []; // {x: seconds since t0, y: value}
 let rollPeaks = [], pitchPeaks = [];
 
 // ====== Charts ======
@@ -224,18 +234,17 @@ function makeTimeseries(){
   return new Chart(ctx, {
     type: "line",
     data: {
-      labels: [],
       datasets: [
-        { label: "roll (deg)",  data: [], yAxisID: "y", pointRadius: 0, borderWidth: 2, tension: 0.15 },
-        { label: "pitch (deg)", data: [], yAxisID: "y", pointRadius: 0, borderWidth: 2, tension: 0.15 },
-        { label: "roll peaks",  type:"scatter", data: [], yAxisID: "y", pointRadius: 5, showLine: false },
-        { label: "pitch peaks", type:"scatter", data: [], yAxisID: "y", pointRadius: 5, showLine: false }
+        { label: "roll (deg)",  data: [], yAxisID: "y", parsing:false, pointRadius: 0, borderWidth: 2, tension: 0.1 },
+        { label: "pitch (deg)", data: [], yAxisID: "y", parsing:false, pointRadius: 0, borderWidth: 2, tension: 0.1 },
+        { label: "roll peaks",  type:"scatter", data: [], yAxisID: "y", parsing:false, pointRadius: 5, showLine: false },
+        { label: "pitch peaks", type:"scatter", data: [], yAxisID: "y", parsing:false, pointRadius: 5, showLine: false }
       ]
     },
     options: {
       animation: false, responsive: true, maintainAspectRatio: false,
       scales: {
-        x: { title:{display:true,text:"samples (latest right)"}, ticks:{ maxTicksLimit: 10 } },
+        x: { type: "linear", title:{display:true,text:"time (s)"} },
         y: { title:{display:true,text:"degrees"} }
       },
       plugins: { legend: { position: "bottom" } },
@@ -246,10 +255,6 @@ function makeTimeseries(){
 
 function makeBoxplot(){
   const ctx = document.getElementById("chart_box").getContext("2d");
-  // Ensure plugin is registered
-  if (!Chart.registry.getController('boxplot')) {
-    console.warn('Boxplot controller not found; chartjs-chart-boxplot may not be loaded.');
-  }
   return new Chart(ctx, {
     type: "boxplot",
     data: {
@@ -271,26 +276,54 @@ function makeBoxplot(){
 }
 
 // ====== App logic ======
-function pushPoint(t, r, p){
-  xs.push(t); rollArr.push(r); pitchArr.push(p);
-  if (xs.length > MAX_POINTS) { xs.shift(); rollArr.shift(); pitchArr.shift(); }
+function trimByWindow(){
+  const winSec = parseFloat($("winSec").value || "120");
+  const cutoffMs = (xs.length? xs[xs.length-1] : 0) - winSec*1000;
+  while (xs.length && xs[0] < cutoffMs) {
+    xs.shift(); rollArr.shift(); pitchArr.shift();
+    // remove first point in rollPts/pitchPts too
+    if (rollPts.length) rollPts.shift();
+    if (pitchPts.length) pitchPts.shift();
+  }
+}
+
+function pushPoint(t_ms, r, p){
+  if (t0 === null) t0 = t_ms;
+  const xSec = (t_ms - t0) / 1000.0;
+
+  xs.push(t_ms); rollArr.push(r); pitchArr.push(p);
+  rollPts.push({x:xSec, y:r}); pitchPts.push({x:xSec, y:p});
+
+  // cap absolute max for memory safety
+  if (xs.length > MAX_POINTS) {
+    xs.splice(0, xs.length - MAX_POINTS);
+    rollArr.splice(0, rollArr.length - MAX_POINTS);
+    pitchArr.splice(0, pitchArr.length - MAX_POINTS);
+    rollPts.splice(0, rollPts.length - MAX_POINTS);
+    pitchPts.splice(0, pitchPts.length - MAX_POINTS);
+  }
 }
 
 function refreshCharts(){
   if (!chartTS || !chartBox) return;
-  const labels = xs.map((_,i)=>i);
-  chartTS.data.labels = labels;
-  chartTS.data.datasets[0].data = rollArr.slice();
-  chartTS.data.datasets[1].data = pitchArr.slice();
-  chartTS.data.datasets[2].data = rollPeaks.map(pk => ({x: pk.idx, y: pk.v}));
-  chartTS.data.datasets[3].data = pitchPeaks.map(pk => ({x: pk.idx, y: pk.v}));
+
+  // Update time series datasets
+  chartTS.data.datasets[0].data = rollPts.slice();
+  chartTS.data.datasets[1].data = pitchPts.slice();
+
+  // Peaks -> scatter with x = (t - t0)/1000
+  const toX = (t) => (t0===null? 0 : (t - t0)/1000.0);
+  chartTS.data.datasets[2].data = rollPeaks.map(pk => ({x: toX(pk.t), y: pk.v}));
+  chartTS.data.datasets[3].data = pitchPeaks.map(pk => ({x: toX(pk.t), y: pk.v}));
   chartTS.update("none");
 
+  // Boxplots from current window arrays
   const rb = quantiles(rollArr);
   const pb = quantiles(pitchArr);
   chartBox.data.datasets[0].data = [rb, pb];
   chartBox.update("none");
 
+  // Numbers panel
   const rStats = meanStd(rollArr);
   const pStats = meanStd(pitchArr);
   $("rollMean").textContent  = isFinite(rStats.mean)? rStats.mean.toFixed(2) : "–";
@@ -323,6 +356,7 @@ function recomputePeaks(){
   const minDist = parseFloat($("minDist").value || "300");
   const minProm = parseFloat($("minProm").value || "1.0");
 
+  // Consider only data within the window
   const startT = xs.length ? (xs[xs.length-1] - winSec*1000) : 0;
   let s = 0; while (s < xs.length && xs[s] < startT) s++;
   const valuesR = rollArr.slice(s), valuesP = pitchArr.slice(s);
@@ -331,6 +365,7 @@ function recomputePeaks(){
   rollPeaks  = detectPeaks(valuesR, times, minDist, minProm);
   pitchPeaks = detectPeaks(valuesP, times, minDist, minProm);
 
+  // Offset indices back to global arrays (we use times anyway)
   if (s>0) {
     rollPeaks.forEach(pk => pk.idx += s);
     pitchPeaks.forEach(pk => pk.idx += s);
@@ -354,6 +389,7 @@ async function unlock(){
     chartTS = makeTimeseries();
     chartBox = makeBoxplot();
     setStatus("unlocked — not connected");
+    bindSliders(); // initialize slider labels
   } catch (e) {
     $("unlockMsg").textContent = "Wrong password or corrupted ciphertext.";
   }
@@ -392,6 +428,7 @@ function connect(){
       if (typeof roll === "number" && typeof pitch === "number") {
         const t = (typeof d.ts_ms === "number") ? d.ts_ms : (Date.now());
         pushPoint(t, roll, pitch);
+        trimByWindow();
         $("last").textContent = `seq=${d.seq ?? "?"}  roll=${roll.toFixed(2)}°  pitch=${pitch.toFixed(2)}°`;
         recomputePeaks();
         refreshCharts();
@@ -420,11 +457,12 @@ document.getElementById("btnUnlock").addEventListener("click", unlock);
 document.getElementById("btnConnect").addEventListener("click", connect);
 document.getElementById("btnDisconnect").addEventListener("click", disconnect);
 document.getElementById("btnClear").addEventListener("click", () => {
+  t0 = null;
   xs.length=0; rollArr.length=0; pitchArr.length=0;
+  rollPts.length=0; pitchPts.length=0;
   rollPeaks.length=0; pitchPeaks.length=0;
   refreshCharts();
 });
-bindSliders();
 </script>
 </body>
 </html>
