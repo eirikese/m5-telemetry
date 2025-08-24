@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-  <title>Roll & Pitch — Live v1.0.3 (2025-08-24)</title>
+  <title>TrollSports Live v1.0.4 (2025-08-24)</title>
   <meta name="theme-color" content="#0b1220"/>
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -79,9 +79,9 @@
 </head>
 <body>
   <div class="topbar">
-    <div class="app-title">Roll &amp; Pitch — Live</div>
+    <div class="app-title">TrollSports Live</div>
     <div class="spacer"></div>
-    <div class="ver">v1.0.3 (2025-08-24)</div>
+    <div class="ver">v1.0.4 (2025-08-24)</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -149,6 +149,7 @@
             <div><div class="small">Mean</div><div class="num" id="rollMean">–</div></div>
             <div><div class="small">Std</div><div class="num" id="rollStd">–</div></div>
             <div><div class="small">Peaks</div><div class="num" id="rollPk">0</div></div>
+            <div><div class="small">Freq (Hz)</div><div class="num" id="rollHzStats">–</div></div>
           </div>
         </div>
         <div class="card half">
@@ -157,6 +158,7 @@
             <div><div class="small">Mean</div><div class="num" id="pitchMean">–</div></div>
             <div><div class="small">Std</div><div class="num" id="pitchStd">–</div></div>
             <div><div class="small">Peaks</div><div class="num" id="pitchPk">0</div></div>
+            <div><div class="small">Freq (Hz)</div><div class="num" id="pitchHzStats">–</div></div>
           </div>
         </div>
       </div>
@@ -213,8 +215,8 @@
             <div style="grid-column:1/-1;">
               <label>Analysis Window (seconds) — used for stats & peak detection</label>
               <div class="range-row">
-                <input id="winSecRange" type="range" min="5" max="600" step="5" value="60"/>
-                <input id="winSec" type="number" min="5" max="600" step="5" value="60" style="width:90px;"/>
+                <input id="winSecRange" type="range" min="5" max="600" step="5" value="10"/>
+                <input id="winSec" type="number" min="5" max="600" step="5" value="10" style="width:90px;"/>
               </div>
             </div>
             <div>
@@ -223,7 +225,7 @@
             </div>
             <div>
               <label>Min prominence (deg)</label>
-              <input id="minProm" value="1.0"/>
+              <input id="minProm" value="5.0"/>
             </div>
           </div>
         </div>
@@ -238,7 +240,7 @@
 
   <script>
   // ====== VERSION ======
-  const APP_VERSION = "v1.0.3 (2025-08-24)";
+  const APP_VERSION = "v1.0.4 (2025-08-24)";
 
   // ====== Tabs ======
   const tabButtons = document.querySelectorAll('.tabbtn');
@@ -307,6 +309,7 @@
 
   // Recording
   let recActive=false; let recRows=[]; let recStartedAt=null;
+  const MAX_RECORD_SAMPLES = 200000; // soft guard (≈ 5.5h at 10Hz)
   const btnRecord = $('btnRecord'); const recInfo = $('recInfo');
 
   // Chart.js defaults for dark theme
@@ -328,7 +331,17 @@
       options:{
         animation:false, responsive:true, maintainAspectRatio:false,
         scales:{
-          x:{ type:'linear', title:{display:true,text:'time (s from start)'} },
+          x:{
+            type:'linear',
+            title:{display:true,text:'time (s from start)'},
+            ticks:{
+              // Prefer format API (no decimals) + fallback callback
+              format:{ maximumFractionDigits:0, minimumFractionDigits:0 },
+              callback:(v)=> Math.round(v).toString(),
+              maxTicksLimit: 10,
+              autoSkip: true
+            }
+          },
           y:{ title:{display:true,text:'degrees'} }
         },
         plugins:{ legend:{ position:'bottom' } }
@@ -351,8 +364,8 @@
     const nowSec = (nowMs - t0)/1000;
     const xmin = Math.max(0, nowSec - currentViewSec);
     const xmax = Math.max(currentViewSec, nowSec);
-    chartTS.options.scales.x.min = xmin;
-    chartTS.options.scales.x.max = xmax;
+    chartTS.options.scales.x.min = Math.floor(xmin);
+    chartTS.options.scales.x.max = Math.ceil(xmax);
     chartTS.update('none');
   }
   viewRange.addEventListener('input', e => applyViewWindow(e.target.value));
@@ -361,7 +374,7 @@
   // ====== Analysis Window control (stats/peaks) ======
   const winRange = $('winSecRange'); const winNum = $('winSec');
   function applyWindow(val){
-    const v = Math.max(5, Math.min(600, parseInt(val||'60',10)));
+    const v = Math.max(5, Math.min(600, parseInt(val||'10',10)));
     winRange.value = v; winNum.value = v;
     const now = timesMs.length ? timesMs[timesMs.length-1] : Date.now();
     recomputePeaksAndStats(now);
@@ -410,7 +423,7 @@
 
   // ====== Core logic ======
   function pruneOld(nowMs){
-    const keepMs = Math.max(parseFloat($('winSec').value||'60')*1000, MAX_KEEP_SEC*1000);
+    const keepMs = Math.max(parseFloat($('winSec').value||'10')*1000, MAX_KEEP_SEC*1000);
     while (timesMs.length && timesMs[0] < nowMs - keepMs) {
       timesMs.shift(); rollVals.shift(); pitchVals.shift();
       rollSeries.shift(); pitchSeries.shift();
@@ -418,9 +431,9 @@
   }
 
   function recomputePeaksAndStats(nowMs){
-    const winSec = parseFloat($('winSec').value||'60');
+    const winSec = parseFloat($('winSec').value||'10');
     const minDist = parseFloat($('minDist').value||'300');
-    const minProm = parseFloat($('minProm').value||'1.0');
+    const minProm = parseFloat($('minProm').value||'5.0');
     const startMs = nowMs - winSec*1000;
 
     let s=0; while (s<timesMs.length && timesMs[s] < startMs) s++;
@@ -439,6 +452,8 @@
     const fR=freq(rPeaks), fP=freq(pPeaks);
     $('rollHz').textContent  = isFinite(fR)? fR.toFixed(2) : '–';
     $('pitchHz').textContent = isFinite(fP)? fP.toFixed(2) : '–';
+    $('rollHzStats').textContent  = isFinite(fR)? fR.toFixed(2) : '–';
+    $('pitchHzStats').textContent = isFinite(fP)? fP.toFixed(2) : '–';
     $('rollPk').textContent  = rPeaks.length;
     $('pitchPk').textContent = pPeaks.length;
 
@@ -469,8 +484,8 @@
       chartTS = makeTimeseries();
       setStatus('unlocked — not connected', false);
       showTab('plot');
-      applyWindow($('winSec').value);
-      applyViewWindow($('viewSec').value); // default 10s
+      applyWindow($('winSec').value);        // default 10s
+      applyViewWindow($('viewSec').value);   // default 10s
       if ($('autoconn').checked) connect();
     } catch(e) {
       $('unlockMsg').textContent='Wrong password or corrupted ciphertext.';
@@ -507,7 +522,14 @@
         rollSeries.push({x:(t - t0)/1000, y: roll}); pitchSeries.push({x:(t - t0)/1000, y: pitch});
         pruneOld(t);
         $('last').textContent = `seq=${d.seq ?? '?' }  roll=${roll.toFixed(2)}°  pitch=${pitch.toFixed(2)}°`;
-        if (recActive) { recRows.push({ t, seq: d.seq, roll, pitch }); recInfo.textContent = `Recording… ${recRows.length} samples`; }
+        if (recActive) {
+          recRows.push({ t, seq: d.seq, roll, pitch });
+          recInfo.textContent = `Recording… ${recRows.length} samples`;
+          if (recRows.length >= MAX_RECORD_SAMPLES) {
+            log('recording limit hit — auto saving');
+            stopRecordingAndSave();
+          }
+        }
         recomputePeaksAndStats(t);
         updateAxisRange(); // keep chart scrolled to latest respecting view window
       } catch(e) { log('parse error: '+e); }
