@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Roll & Pitch — Live (Protected, Peaks & Boxplots)</title>
+  <title>Roll & Pitch — Live (Protected, Peaks)</title>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif; }
     body { margin: 16px; }
@@ -24,15 +24,12 @@
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .num { font-weight: 600; }
     .small { font-size: 12px; }
-
-    /* Explicit container heights for charts */
-    .plot-tall  { position: relative; height: 340px; width: 100%; }
-    .plot-short { position: relative; height: 240px; width: 100%; }
+    .log { font-size: 12px; background:#0b1020; color:#b7c3ff; padding:10px; border-radius:8px; max-height:200px; overflow:auto; }
+    .plot-tall  { position: relative; height: 360px; width: 100%; }
     canvas { display: block; }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot@4.3.0/build/index.umd.min.js"></script>
 </head>
 <body>
   <h2>Roll &amp; Pitch — Live Web Plot</h2>
@@ -77,7 +74,7 @@
           </div>
           <div>
             <label>Window (seconds)</label>
-            <input id="winSec" value="120"/>
+            <input id="winSec" value="60"/>
           </div>
           <div>
             <label>Min peak distance (ms)</label>
@@ -98,22 +95,19 @@
           <div class="muted small">WSS URL: <span class="mono" id="url"></span></div>
           <div class="muted small" id="last"></div>
         </div>
-        <p class="muted small" style="margin-top:8px">
-          Uses a <b>read‑only</b> viewer credential (decrypted in-browser) limited to your topic. No backend required.
-        </p>
       </div>
 
       <div class="card grow">
         <div class="plot-tall"><canvas id="chart_ts"></canvas></div>
         <div class="grid" style="margin-top:8px">
           <div class="card">
-            <div><b>Roll Peaks</b></div>
+            <div><b>Roll</b></div>
             <div class="small">freq: <span class="num" id="rollHz">–</span> Hz | peaks: <span class="num" id="rollPk">0</span></div>
             <div class="small">mean: <span class="num" id="rollMean">–</span> | std: <span class="num" id="rollStd">–</span></div>
             <div class="small">latest: <span class="num" id="rollNow">–</span>°</div>
           </div>
           <div class="card">
-            <div><b>Pitch Peaks</b></div>
+            <div><b>Pitch</b></div>
             <div class="small">freq: <span class="num" id="pitchHz">–</span> Hz | peaks: <span class="num" id="pitchPk">0</span></div>
             <div class="small">mean: <span class="num" id="pitchMean">–</span> | std: <span class="num" id="pitchStd">–</span></div>
             <div class="small">latest: <span class="num" id="pitchNow">–</span>°</div>
@@ -124,7 +118,8 @@
 
     <div class="row" style="margin-top:16px">
       <div class="card grow">
-        <div class="plot-short"><canvas id="chart_box"></canvas></div>
+        <div><b>Debug log</b></div>
+        <pre class="log" id="log"></pre>
       </div>
     </div>
   </div>
@@ -156,6 +151,7 @@ const ENCRYPTED_CREDS = "eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJ
 
 // ====== Helpers ======
 const $ = (id) => document.getElementById(id);
+function log(s){ const el=$("log"); el.textContent += s + "\\n"; el.scrollTop = el.scrollHeight; }
 function setStatus(text, ok=false){ $("status").textContent=text; $("status").className=ok?"ok":"bad"; }
 function meanStd(arr){
   if (!arr.length) return {mean:NaN,std:NaN};
@@ -167,22 +163,21 @@ function detectPeaks(values, times, minDistMs, minProm){
   const n = values.length;
   if (n < 3) return [];
   const peaks = [];
-  let lastPeakIdx = -1;
+  let lastT = -1e18;
   for (let i=1;i<n-1;i++){
     const v = values[i];
     if (v <= values[i-1] || v <= values[i+1]) continue;
+    // simple local baseline (window = 5 samples)
     const w = 5;
     const i0 = Math.max(0, i-w), i1 = Math.min(n-1, i+w);
     let base = values[i0];
     for (let j=i0+1;j<=i1;j++) base = Math.min(base, values[j]);
     const prom = v - base;
     if (prom < minProm) continue;
-    if (lastPeakIdx >= 0) {
-      const dt = times[i] - times[lastPeakIdx];
-      if (dt < minDistMs) continue;
-    }
-    peaks.push({idx:i, t:times[i], v:v});
-    lastPeakIdx = i;
+    const t = times[i];
+    if (t - lastT < minDistMs) continue;
+    peaks.push({t, v, i});
+    lastT = t;
   }
   return peaks;
 }
@@ -191,12 +186,19 @@ function detectPeaks(values, times, minDistMs, minProm){
 let client = null;
 let unlocked = false;
 let viewer = { user:null, pass:null };
-let chartTS = null, chartBox = null;
+let chartTS = null;
 
-const MAX_POINTS = 1200;
-const xs = [], rollArr = [], pitchArr = [];
-let rollPeaks = [], pitchPeaks = [];
-let winStartIdx = 0;
+const timesMs = []; // raw timestamps (ms)
+const rollVals = [];
+const pitchVals = [];
+let t0 = null;
+
+const rollSeries = [];  // [{x:sec, y:value}, ...] for chart
+const pitchSeries = [];
+let rollPeakPts = [];   // [{x:sec, y:value}, ...] for chart
+let pitchPeakPts = [];
+
+const MAX_KEEP_SEC = 600; // keep up to 10 min in memory
 
 // ====== Charts ======
 function makeTimeseries(){
@@ -204,112 +206,96 @@ function makeTimeseries(){
   return new Chart(ctx, {
     type: "line",
     data: {
-      labels: [],
       datasets: [
-        { label: "roll (deg)",  data: [], yAxisID: "y", pointRadius: 0, borderWidth: 2, tension: 0.15 },
-        { label: "pitch (deg)", data: [], yAxisID: "y", pointRadius: 0, borderWidth: 2, tension: 0.15 },
-        { label: "roll peaks",  type:"scatter", data: [], yAxisID: "y", pointRadius: 5, showLine: false },
-        { label: "pitch peaks", type:"scatter", data: [], yAxisID: "y", pointRadius: 5, showLine: false }
+        { label: "roll (deg)",  data: rollSeries,  parsing:false,
+          borderColor:"#1f77b4", backgroundColor:"rgba(31,119,180,0.1)",
+          pointRadius:0, borderWidth:2, tension:0.15 },
+        { label: "pitch (deg)", data: pitchSeries, parsing:false,
+          borderColor:"#ff7f0e", backgroundColor:"rgba(255,127,14,0.1)",
+          pointRadius:0, borderWidth:2, tension:0.15 },
+        { label: "roll peaks",  type:"scatter", data: rollPeakPts, parsing:false,
+          borderColor:"#2ca02c", backgroundColor:"#2ca02c", pointRadius:4, showLine:false },
+        { label: "pitch peaks", type:"scatter", data: pitchPeakPts, parsing:false,
+          borderColor:"#d62728", backgroundColor:"#d62728", pointRadius:4, showLine:false }
       ]
     },
     options: {
-      animation: false, responsive: true, maintainAspectRatio: false,
+      animation: false,
+      responsive: true,
+      maintainAspectRatio: false,
       scales: {
-        x: { title:{display:true,text:"samples (latest right)"}, ticks:{ maxTicksLimit: 10 } },
+        x: { type:"linear", title:{display:true,text:"time (s from start)"} },
         y: { title:{display:true,text:"degrees"} }
       },
-      plugins: { legend: { position: "bottom" } },
-      resizeDelay: 100
-    }
-  });
-}
-
-function makeBoxplot(){
-  const ctx = document.getElementById("chart_box").getContext("2d");
-  return new Chart(ctx, {
-    type: "boxplot",
-    data: {
-      labels: ["roll", "pitch"],
-      datasets: [{
-        label: "distribution (window)",
-        data: [[], []] // plugin computes quartiles from arrays
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { position: "bottom" } },
-      scales: { y: { title:{display:true,text:"degrees"} } }
+      plugins: { legend: { position: "bottom" } }
     }
   });
 }
 
 // ====== App logic ======
-function pushPoint(t, r, p){
-  xs.push(t); rollArr.push(r); pitchArr.push(p);
-  if (xs.length > MAX_POINTS) { xs.shift(); rollArr.shift(); pitchArr.shift(); if (winStartIdx>0) winStartIdx--; }
+function pruneOld(nowMs){
+  const keepMs = Math.max(parseFloat($("winSec").value||"60")*1000, MAX_KEEP_SEC*1000);
+  // Drop anything older than now - keepMs
+  while (timesMs.length && timesMs[0] < nowMs - keepMs) {
+    timesMs.shift(); rollVals.shift(); pitchVals.shift();
+    rollSeries.shift(); pitchSeries.shift();
+    // peak points will be rebuilt after detection
+  }
 }
 
-function recomputeWindow(){
-  const winSec = parseFloat($("winSec").value || "120");
-  const startT = xs.length ? (xs[xs.length-1] - winSec*1000) : 0;
-  let s = 0; while (s < xs.length && xs[s] < startT) s++;
-  winStartIdx = s;
-}
+function recomputePeaksAndStats(nowMs){
+  const winSec = parseFloat($("winSec").value||"60");
+  const minDist = parseFloat($("minDist").value||"300");
+  const minProm = parseFloat($("minProm").value||"1.0");
+  const startMs = nowMs - winSec*1000;
 
-function recomputePeaksAndStats(){
-  recomputeWindow();
-  const minDist = parseFloat($("minDist").value || "300");
-  const minProm = parseFloat($("minProm").value || "1.0");
+  // Slice window
+  let s = 0; while (s < timesMs.length && timesMs[s] < startMs) s++;
+  const tWin = timesMs.slice(s);
+  const rWin = rollVals.slice(s);
+  const pWin = pitchVals.slice(s);
 
-  const valuesR = rollArr.slice(winStartIdx), valuesP = pitchArr.slice(winStartIdx);
-  const times   = xs.slice(winStartIdx);
+  // Peaks
+  const rPeaks = detectPeaks(rWin, tWin, minDist, minProm);
+  const pPeaks = detectPeaks(pWin, tWin, minDist, minProm);
 
-  rollPeaks  = detectPeaks(valuesR, times, minDist, minProm);
-  pitchPeaks = detectPeaks(valuesP, times, minDist, minProm);
-  // shift to global indices
-  rollPeaks.forEach(pk => pk.idx += winStartIdx);
-  pitchPeaks.forEach(pk => pk.idx += winStartIdx);
-
-  // Stats on window
-  const rStats = meanStd(valuesR);
-  const pStats = meanStd(valuesP);
-  $("rollMean").textContent  = isFinite(rStats.mean)? rStats.mean.toFixed(2) : "–";
-  $("rollStd").textContent   = isFinite(rStats.std)?  rStats.std.toFixed(2)  : "–";
-  $("pitchMean").textContent = isFinite(pStats.mean)? pStats.mean.toFixed(2) : "–";
-  $("pitchStd").textContent  = isFinite(pStats.std)?  pStats.std.toFixed(2)  : "–";
+  rollPeakPts.length = 0;
+  pitchPeakPts.length = 0;
+  for (const pk of rPeaks) rollPeakPts.push({x:(pk.t - t0)/1000, y:pk.v});
+  for (const pk of pPeaks) pitchPeakPts.push({x:(pk.t - t0)/1000, y:pk.v});
 
   // Frequency
-  function freqFromPeaks(peaks){
+  function freq(peaks){
     if (peaks.length < 2) return NaN;
-    let sum=0, cnt=0;
-    for (let i=1;i<peaks.length;i++){
-      const dt = (peaks[i].t - peaks[i-1].t)/1000;
-      if (dt>0) { sum += dt; cnt++; }
-    }
-    return cnt? 1/(sum/cnt) : NaN;
+    let sum=0, c=0;
+    for (let i=1;i<peaks.length;i++){ const dt=(peaks[i].t - peaks[i-1].t)/1000; if (dt>0){sum+=dt; c++;} }
+    return c? 1/(sum/c) : NaN;
   }
-  const fR = freqFromPeaks(rollPeaks);
-  const fP = freqFromPeaks(pitchPeaks);
+  const fR = freq(rPeaks);
+  const fP = freq(pPeaks);
   $("rollHz").textContent  = isFinite(fR)? fR.toFixed(2) : "–";
   $("pitchHz").textContent = isFinite(fP)? fP.toFixed(2) : "–";
+  $("rollPk").textContent  = rPeaks.length;
+  $("pitchPk").textContent = pPeaks.length;
 
-  // Boxplot data: arrays (plugin will compute quartiles)
-  chartBox.data.datasets[0].data = [valuesR, valuesP];
-}
+  // Stats
+  function meanStd(arr){
+    if (!arr.length) return {m:NaN,s:NaN};
+    const m = arr.reduce((a,b)=>a+b,0)/arr.length;
+    const v = arr.reduce((a,b)=>a+(b-m)*(b-m),0)/arr.length;
+    return {m,s:Math.sqrt(v)};
+  }
+  const rs = meanStd(rWin);
+  const ps = meanStd(pWin);
+  $("rollMean").textContent  = isFinite(rs.m)? rs.m.toFixed(2) : "–";
+  $("rollStd").textContent   = isFinite(rs.s)? rs.s.toFixed(2)  : "–";
+  $("pitchMean").textContent = isFinite(ps.m)? ps.m.toFixed(2) : "–";
+  $("pitchStd").textContent  = isFinite(ps.s)? ps.s.toFixed(2)  : "–";
 
-function refreshCharts(){
-  const labels = xs.map((_,i)=>i);
-  chartTS.data.labels = labels;
-  chartTS.data.datasets[0].data = rollArr;
-  chartTS.data.datasets[1].data = pitchArr;
-  chartTS.data.datasets[2].data = rollPeaks.map(pk => ({x: labels.length - (xs.length - pk.idx), y: pk.v}));
-  chartTS.data.datasets[3].data = pitchPeaks.map(pk => ({x: labels.length - (xs.length - pk.idx), y: pk.v}));
-  chartTS.update("none");
-  chartBox.update("none");
-
-  const lastR = rollArr[rollArr.length-1], lastP = pitchArr[pitchArr.length-1];
-  $("rollNow").textContent   = (lastR!==undefined)? lastR.toFixed(2) : "–";
-  $("pitchNow").textContent  = (lastP!==undefined)? lastP.toFixed(2) : "–";
+  const lastR = rollVals[rollVals.length-1];
+  const lastP = pitchVals[pitchVals.length-1];
+  $("rollNow").textContent = (lastR!==undefined)? lastR.toFixed(2) : "–";
+  $("pitchNow").textContent= (lastP!==undefined)? lastP.toFixed(2) : "–";
 }
 
 async function unlock(){
@@ -327,8 +313,8 @@ async function unlock(){
     $("app").classList.remove("hidden");
     $("cid").value = "web-" + Math.random().toString(16).slice(2, 10);
     chartTS = makeTimeseries();
-    chartBox = makeBoxplot();
     setStatus("unlocked — not connected");
+    log("unlocked OK");
   } catch (e) {
     $("unlockMsg").textContent = "Wrong password or corrupted ciphertext.";
   }
@@ -351,43 +337,58 @@ function connect(){
     username: viewer.user, password: viewer.pass,
     clientId: cid, keepalive: 30, resubscribe: true
   });
-  client.on("connect", () => { setStatus("connected", true); client.subscribe(topic, { qos: 0 }); });
-  client.on("reconnect", () => setStatus("reconnecting…", false));
-  client.on("close", () => setStatus("disconnected", false));
-  client.on("error", () => setStatus("error", false));
+  client.on("connect", () => { setStatus("connected", true); client.subscribe(topic, { qos: 0 }); log("connected & subscribed: "+topic); });
+  client.on("reconnect", () => { setStatus("reconnecting…", false); log("reconnecting..."); });
+  client.on("close", () => { setStatus("disconnected", false); log("closed"); });
+  client.on("error", (e) => { setStatus("error", false); log("error: "+(e?.message||e)); });
   client.on("message", (topic, payload) => {
     try{
-      const d = JSON.parse(new TextDecoder().decode(payload));
+      let txt;
+      try { txt = new TextDecoder().decode(payload); }
+      catch { txt = payload.toString ? payload.toString() : ""; }
+      const d = JSON.parse(txt);
       let roll = d.roll_deg, pitch = d.pitch_deg;
       if ((roll === undefined || pitch === undefined) && d.ax !== undefined) {
         const k = 180 / Math.PI;
         roll  = Math.atan2(d.ay, d.az) * k;
         pitch = Math.atan2(-d.ax, Math.sqrt(d.ay*d.ay + d.az*d.az)) * k;
       }
-      if (typeof roll === "number" && typeof pitch === "number") {
-        const t = (typeof d.ts_ms === "number") ? d.ts_ms : (Date.now());
-        pushPoint(t, roll, pitch);
-        $("last").textContent = `seq=${d.seq ?? "?"}  roll=${roll.toFixed(2)}°  pitch=${pitch.toFixed(2)}°`;
-        recomputePeaksAndStats();
-        refreshCharts();
+      if (typeof roll !== "number" || typeof pitch !== "number") {
+        log("msg missing roll/pitch: "+txt); return;
       }
-    } catch(e){ /* ignore parse errors */ }
+      const t = (typeof d.ts_ms === "number") ? d.ts_ms : Date.now();
+      if (t0 === null) t0 = t;
+
+      // store
+      timesMs.push(t);
+      rollVals.push(roll);
+      pitchVals.push(pitch);
+      rollSeries.push({x:(t - t0)/1000, y: roll});
+      pitchSeries.push({x:(t - t0)/1000, y: pitch});
+
+      pruneOld(t);
+      recomputePeaksAndStats(t);
+      chartTS.update("none");
+
+      $("last").textContent = `seq=${d.seq ?? "?"}  roll=${roll.toFixed(2)}°  pitch=${pitch.toFixed(2)}°`;
+    } catch(e){ log("parse error: "+e); }
   });
 }
 
 function disconnect(){
   if (client) { try { client.end(true); } catch(e){} client = null; }
   setStatus("disconnected");
+  log("disconnected");
 }
 
 document.getElementById("btnUnlock").addEventListener("click", unlock);
 document.getElementById("btnConnect").addEventListener("click", connect);
 document.getElementById("btnDisconnect").addEventListener("click", disconnect);
 document.getElementById("btnClear").addEventListener("click", () => {
-  xs.length=0; rollArr.length=0; pitchArr.length=0;
-  rollPeaks.length=0; pitchPeaks.length=0; winStartIdx=0;
-  chartBox.data.datasets[0].data = [[],[]];
-  refreshCharts();
+  timesMs.length=0; rollVals.length=0; pitchVals.length=0;
+  rollSeries.length=0; pitchSeries.length=0;
+  rollPeakPts.length=0; pitchPeakPts.length=0;
+  t0 = null; chartTS.update("none"); log("cleared");
 });
 </script>
 </body>
