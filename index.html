@@ -3,15 +3,15 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Roll & Pitch — Live (Protected)</title>
+  <title>Roll & Pitch — Live (Protected, Boxplots & Peaks)</title>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif; }
     body { margin: 16px; }
     h2 { margin: 0 0 12px 0; }
     .row { display: flex; gap: 16px; flex-wrap: wrap; }
     .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; box-shadow: 0 1px 6px rgba(0,0,0,.05); }
-    .grow { flex: 1 1 540px; }
-    .half { flex: 1 1 320px; min-width: 300px; }
+    .grow { flex: 1 1 600px; }
+    .half { flex: 1 1 340px; min-width: 320px; }
     .muted { color: #666; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; }
     .btns { display:flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
@@ -19,16 +19,25 @@
     input, select { width: 100%; padding: 8px 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 8px; }
     label { font-size: 12px; color: #555; margin-bottom: 4px; display:block; }
     .hidden { display: none; }
+    .ok { color: #067d00; }
+    .bad { color: #bf0000; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .kpi { display:grid; grid-template-columns: repeat(3, minmax(120px, 1fr)); gap:10px; }
+    .kpi .box { border:1px solid #eee; border-radius:10px; padding:10px; }
+    .k { font-size: 12px; color:#333; }
+    .v { font-weight: 700; }
   </style>
+  <!-- libs -->
   <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot@4.4.1/build/index.umd.min.js"></script>
 </head>
 <body>
-  <h2>Roll &amp; Pitch — Live Web Plot</h2>
+  <h2>Roll &amp; Pitch — Live Web Plot (Protected)</h2>
 
   <!-- Unlock panel -->
   <div id="gate" class="card half">
-    <p><b>Protected dashboard</b>. Enter the site password to view the plot. (Use a read‑only MQTT credential in the ciphertext.)</p>
+    <p><b>Protected dashboard</b>. Enter the site password to view the plot. (MQTT viewer creds are stored encrypted.)</p>
     <div>
       <label>Site password</label>
       <input id="pw" type="password" placeholder="Enter password"/>
@@ -43,46 +52,81 @@
   <div id="app" class="hidden">
     <div class="row">
       <div class="card half">
-        <div class="row" style="gap:10px">
-          <div style="flex:1 1 180px">
+        <div class="grid">
+          <div>
             <label>Host</label>
             <input id="host" value="afe7881f82fe42929e4a5370cddc7285.s1.eu.hivemq.cloud"/>
           </div>
-          <div style="flex:0 0 120px">
+          <div>
             <label>WS Port</label>
             <input id="port" value="8884"/>
           </div>
-          <div style="flex:0 0 120px">
+          <div>
             <label>Path</label>
             <input id="path" value="/mqtt"/>
           </div>
-        </div>
-        <div class="row" style="gap:10px; margin-top:8px">
-          <div style="flex:1 1 260px">
+          <div>
             <label>Topic</label>
             <input id="topic" value="m5/dev001/telemetry"/>
           </div>
-          <div style="flex:1 1 220px">
+          <div>
             <label>Client ID (auto)</label>
             <input id="cid" readonly/>
           </div>
+          <div>
+            <label>Status</label>
+            <input id="status" readonly value="locked"/>
+          </div>
         </div>
+
+        <div style="margin-top:10px"><b>Peak detection</b></div>
+        <div class="grid">
+          <div>
+            <label>Sensitivity (k × MAD)</label>
+            <input id="sens" type="range" min="0.5" max="6" step="0.1" value="2.0"/>
+            <div class="muted"><span id="sensVal">2.0</span> × MAD</div>
+          </div>
+          <div>
+            <label>Min peak distance (s)</label>
+            <input id="minDist" type="range" min="0.2" max="5" step="0.1" value="1.0"/>
+            <div class="muted"><span id="minDistVal">1.0</span> s</div>
+          </div>
+        </div>
+
+        <div style="margin-top:10px"><b>Window</b></div>
+        <div class="grid">
+          <div>
+            <label>Analysis window (s)</label>
+            <input id="winSec" type="number" min="10" max="600" step="10" value="120"/>
+          </div>
+          <div>
+            <label>Subscribe on load</label>
+            <select id="autoSub"><option value="1">Yes</option><option value="0">No</option></select>
+          </div>
+        </div>
+
         <div class="btns">
           <button id="btnConnect">Connect</button>
           <button id="btnDisconnect">Disconnect</button>
-          <button id="btnClear">Clear Plot</button>
+          <button id="btnClear">Clear</button>
         </div>
-        <div style="margin-top:10px">
-          <div>Status: <span id="status" class="muted">locked</span></div>
-          <div class="muted small">WSS URL: <span class="mono" id="url"></span></div>
-          <div class="muted" id="last"></div>
-        </div>
-        <p class="muted" style="margin-top:8px">
-          Tip: The MQTT username/password are decrypted in browser after you enter the site password. Use a <b>read‑only</b> viewer credential limited to your topic.
-        </p>
+        <div class="muted small">WSS URL: <span class="mono" id="url"></span></div>
+        <div class="muted" id="last"></div>
       </div>
+
       <div class="card grow">
-        <canvas id="chart" height="140"></canvas>
+        <canvas id="ts" height="160"></canvas>
+        <div style="height:10px"></div>
+        <canvas id="boxes" height="130"></canvas>
+        <div style="height:10px"></div>
+        <div class="kpi">
+          <div class="box"><div class="k">Sample rate</div><div class="v" id="sr">—</div></div>
+          <div class="box"><div class="k">Roll freq (Hz)</div><div class="v" id="fr">—</div></div>
+          <div class="box"><div class="k">Pitch freq (Hz)</div><div class="v" id="fp">—</div></div>
+          <div class="box"><div class="k">Roll median (°)</div><div class="v" id="rmed">—</div></div>
+          <div class="box"><div class="k">Pitch median (°)</div><div class="v" id="pmed">—</div></div>
+          <div class="box"><div class="k">Window size</div><div class="v" id="wsize">—</div></div>
+        </div>
       </div>
     </div>
   </div>
@@ -103,82 +147,207 @@ async function deriveKey(password, salt) {
   );
 }
 async function decryptCreds(passphrase, blobB64) {
-  // blob format: base64 of JSON: {salt, iv, ct} each base64
   const raw = atob(blobB64);
   const j = JSON.parse(raw);
   const salt = b64d(j.salt), iv = b64d(j.iv), ct = b64d(j.ct);
   const key = await deriveKey(passphrase, salt);
   const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
-  const dec = new TextDecoder().decode(new Uint8Array(pt));
-  // plaintext is JSON: {user:"...", pass:"..."}
-  return JSON.parse(dec);
+  return JSON.parse(new TextDecoder().decode(new Uint8Array(pt))); // {user, pass}
 }
 
 // ====== CONFIG ======
-// Paste the encrypted blob from encrypt.html here (base64 string of {"salt","iv","ct"} JSON)
+// Replace with encrypted blob from encrypt.html
 const ENCRYPTED_CREDS = "eyJzYWx0IjoiK2JnaDE0dFVtZjFOR21Ba3RMNTdaUT09IiwiaXYiOiJ2UnRmbWZjOThqd1R5TGc2IiwiY3QiOiJSWVB1ZWQvdGFUaTRtNE56N3BrRGNMRzFEY2xrM1VVa28yQlZBQXk0RGtBN2doeUZXczZTUUJia0l0bUZUWkZWeHUxcFlrUVhFaXNGR1hJWSJ9";
 
-// ====== UI / App logic ======
+// ====== UI ======
 const $ = (id) => document.getElementById(id);
-let client = null;
-let unlocked = false;
-let viewer = { user: null, pass: null };
+let client = null, unlocked = false, viewer = {user:null, pass:null};
 
-function setStatus(text, ok=false) {
-  $("status").textContent = text;
-  $("status").className = ok ? "ok" : "muted";
-}
+$("sens").addEventListener("input", ()=> $("sensVal").textContent = $("sens").value);
+$("minDist").addEventListener("input", ()=> $("minDistVal").textContent = $("minDist").value);
 
-function pushPoint(chart, r, p) {
-  const labels = chart.data.labels;
-  const rollData  = chart.data.datasets[0].data;
-  const pitchData = chart.data.datasets[1].data;
-  labels.push(labels.length);
-  rollData.push(r); pitchData.push(p);
-  if (labels.length > 1200) { labels.shift(); rollData.shift(); pitchData.shift(); }
-  chart.update("none");
-}
-
-function buildChart() {
-  const ctx = document.getElementById("chart").getContext("2d");
-  return new Chart(ctx, {
-    type: "line",
-    data: { labels: [], datasets: [
-      { label: "roll (deg)", data: [], pointRadius: 0, borderWidth: 2, tension: 0.15 },
-      { label: "pitch (deg)", data: [], pointRadius: 0, borderWidth: 2, tension: 0.15 },
-    ]},
-    options: {
-      animation: false,
-      responsive: true, maintainAspectRatio: false,
-      scales: { x: { title: { display:true, text:"samples" }}, y: { title: { display:true, text:"degrees" }}},
-      plugins: { legend: { position: "bottom" } }
-    }
-  });
-}
-let chart = null;
-
-async function unlock() {
+document.getElementById("btnUnlock").addEventListener("click", async () => {
   const pwd = $("pw").value;
-  if (!pwd) { $("unlockMsg").textContent = "Enter a password."; return; }
+  if (!pwd) { $("unlockMsg").textContent = "Enter password."; return; }
   if (!ENCRYPTED_CREDS || ENCRYPTED_CREDS === "PASTE_CIPHERTEXT_HERE") {
-    $("unlockMsg").textContent = "No encrypted creds embedded. Generate with encrypt.html and paste into ENCRYPTED_CREDS.";
+    $("unlockMsg").textContent = "No encrypted creds embedded. Use encrypt.html to generate a blob and paste into ENCRYPTED_CREDS.";
     return;
   }
   try {
     const creds = await decryptCreds(pwd, ENCRYPTED_CREDS);
     viewer.user = creds.user; viewer.pass = creds.pass;
     unlocked = true;
-    $("gate").classList.add("hidden");
-    $("app").classList.remove("hidden");
-    setStatus("unlocked — not connected");
+    $("gate").classList.add("hidden"); $("app").classList.remove("hidden");
     $("cid").value = "web-" + Math.random().toString(16).slice(2, 10);
-    chart = buildChart();
+    setStatus("unlocked — not connected");
+    initCharts();
+    if ($("autoSub").value === "1") connect();
   } catch (e) {
     $("unlockMsg").textContent = "Wrong password or corrupted ciphertext.";
   }
+});
+
+document.getElementById("btnConnect").addEventListener("click", connect);
+document.getElementById("btnDisconnect").addEventListener("click", disconnect);
+document.getElementById("btnClear").addEventListener("click", () => clearBuffers(true));
+
+function setStatus(text, ok=false) { $("status").value = text; $("status").className = ok ? "ok" : "bad"; }
+
+// ====== Data buffers & utils ======
+let buf = [];            // {idx, ts, roll, pitch}
+let idx = 0;
+let rollPeaks = [];      // indexes of peaks
+let pitchPeaks = [];
+let srEWMA = null;       // sample rate estimate
+function median(arr) {
+  if (!arr.length) return NaN;
+  const a = [...arr].sort((x,y)=>x-y);
+  const m = Math.floor(a.length/2);
+  return a.length%2 ? a[m] : (a[m-1]+a[m])/2;
+}
+function MAD(arr, med) {
+  const dev = arr.map(v => Math.abs(v - med));
+  return median(dev);
+}
+function quantiles(arr) {
+  if (!arr.length) return {min:NaN,q1:NaN,median:NaN,q3:NaN,max:NaN};
+  const a = [...arr].sort((x,y)=>x-y);
+  const q = (p)=> {
+    const pos = (a.length - 1) * p;
+    const base = Math.floor(pos), rest = pos - base;
+    if (a[base+1] !== undefined) return a[base] + rest*(a[base+1]-a[base]);
+    return a[base];
+  };
+  return {min:a[0], q1:q(0.25), median:q(0.5), q3:q(0.75), max:a[a.length-1]};
+}
+function pruneByWindow(seconds) {
+  if (!buf.length) return;
+  const latestTs = buf[buf.length-1].ts;
+  const cutoff = latestTs - seconds*1000;
+  const startLen = buf.length;
+  while (buf.length && buf[0].ts < cutoff) buf.shift();
+  // shift peak indices accordingly
+  const shift = startLen - buf.length;
+  const firstIdx = buf.length ? buf[0].idx : 0;
+  rollPeaks = rollPeaks.filter(i => i >= firstIdx);
+  pitchPeaks = pitchPeaks.filter(i => i >= firstIdx);
+}
+function detectPeaks(values, timestamps, kMAD, minDistSec, srHz) {
+  const res = [];
+  if (values.length < 5) return res;
+  const med = median(values);
+  const mad = MAD(values, med) || 1e-6;
+  const thresh = med + kMAD * 1.4826 * mad;
+  const minDist = Math.max(1, Math.round(minDistSec * (srHz || 10)));
+  for (let i = 1; i < values.length - 1; i++) {
+    if (values[i] > values[i-1] && values[i] >= values[i+1] && values[i] >= thresh) {
+      if (!res.length || (i - res[res.length-1]) >= minDist) res.push(i);
+    }
+  }
+  return res;
+}
+function estimateSampleRate(tsArr) {
+  if (tsArr.length < 4) return null;
+  const dt = [];
+  for (let i=1;i<tsArr.length;i++) {
+    const d = (tsArr[i] - tsArr[i-1]) / 1000.0;
+    if (d>0 && d<5) dt.push(d);
+  }
+  if (!dt.length) return null;
+  const medDt = median(dt);
+  const hz = 1.0 / medDt;
+  return hz;
+}
+function peakFreq(peaks, tsArr) {
+  if (peaks.length < 2) return null;
+  const periods = [];
+  for (let i=1;i<peaks.length;i++) {
+    const t = (tsArr[peaks[i]] - tsArr[peaks[i-1]]) / 1000.0;
+    if (t>0 && t<30) periods.push(t);
+  }
+  if (!periods.length) return null;
+  const p = median(periods);
+  return 1.0 / p;
 }
 
-function connect() {
+// ====== Charts ======
+let tsChart = null, boxChart = null;
+function initCharts() {
+  const tsctx = document.getElementById("ts").getContext("2d");
+  tsChart = new Chart(tsctx, {
+    type: "line",
+    data: { labels: [], datasets: [
+      { label: "roll (deg)", data: [], pointRadius: 0, borderWidth: 2, tension: 0.15 },
+      { label: "pitch (deg)", data: [], pointRadius: 0, borderWidth: 2, tension: 0.15 },
+      { label: "roll peaks", type: "scatter", data: [], pointRadius: 3, borderWidth: 0 },
+      { label: "pitch peaks", type: "scatter", data: [], pointRadius: 3, borderWidth: 0 },
+    ]},
+    options: {
+      animation: false, responsive: true, maintainAspectRatio: false,
+      scales: { x: { title: { display:true, text:"samples (latest at right)" }}, y: { title: { display:true, text:"degrees" }}},
+      plugins: { legend: { position: "bottom" } }
+    }
+  });
+  const bctx = document.getElementById("boxes").getContext("2d");
+  boxChart = new Chart(bctx, {
+    type: "boxplot",
+    data: { labels: ["roll", "pitch"], datasets: [{ label: "Distribution (window)", data: [
+      {min:0,q1:0,median:0,q3:0,max:0},
+      {min:0,q1:0,median:0,q3:0,max:0},
+    ]}]},
+    options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:"bottom" }}, scales:{ y:{ title:{display:true,text:"degrees"} } } }
+  });
+}
+
+function updateCharts() {
+  if (!buf.length) return;
+  const labels = buf.map(p => p.idx);
+  const roll = buf.map(p => p.roll);
+  const pitch = buf.map(p => p.pitch);
+  const ts = buf.map(p => p.ts);
+
+  // Sample rate
+  const estHz = estimateSampleRate(ts);
+  if (estHz) {
+    srEWMA = srEWMA === null ? estHz : (0.8*srEWMA + 0.2*estHz);
+    $("sr").textContent = srEWMA.toFixed(2) + " Hz";
+  }
+
+  // Peaks
+  const kMAD = parseFloat($("sens").value);
+  const minDistSec = parseFloat($("minDist").value);
+  const rollIdx = detectPeaks(roll, ts, kMAD, minDistSec, srEWMA);
+  const pitchIdx = detectPeaks(pitch, ts, kMAD, minDistSec, srEWMA);
+  rollPeaks = rollIdx.map(i => buf[i].idx);
+  pitchPeaks = pitchIdx.map(i => buf[i].idx);
+
+  const rollPeakPts = rollIdx.map(i => ({x: buf[i].idx, y: roll[i]}));
+  const pitchPeakPts= pitchIdx.map(i => ({x: buf[i].idx, y: pitch[i]}));
+
+  // Update TS chart
+  tsChart.data.labels = labels;
+  tsChart.data.datasets[0].data = roll;
+  tsChart.data.datasets[1].data = pitch;
+  tsChart.data.datasets[2].data = rollPeakPts;
+  tsChart.data.datasets[3].data = pitchPeakPts;
+  tsChart.update("none");
+
+  // Boxplots
+  const rQ = quantiles(roll);
+  const pQ = quantiles(pitch);
+  boxChart.data.datasets[0].data = [rQ, pQ];
+  boxChart.update("none");
+
+  // KPIs
+  $("fr").textContent = (peakFreq(rollIdx, ts) ?? 0).toFixed(2);
+  $("fp").textContent = (peakFreq(pitchIdx, ts) ?? 0).toFixed(2);
+  $("rmed").textContent = isFinite(rQ.median) ? rQ.median.toFixed(2) : "—";
+  $("pmed").textContent = isFinite(pQ.median) ? pQ.median.toFixed(2) : "—";
+  $("wsize").textContent = buf.length + " samples";
+}
+
+// ====== MQTT WSS ======
+function connect(){
   if (!unlocked) return;
   if (client) { try { client.end(true); } catch(e){} client = null; }
   const host = $("host").value.trim(), port = $("port").value.trim(), path = $("path").value.trim() || "/mqtt";
@@ -193,10 +362,7 @@ function connect() {
     username: viewer.user, password: viewer.pass,
     clientId: cid, keepalive: 30, resubscribe: true
   });
-  client.on("connect", () => {
-    setStatus("connected", true);
-    client.subscribe(topic, { qos: 0 });
-  });
+  client.on("connect", () => { setStatus("connected", true); client.subscribe(topic, { qos: 0 }); });
   client.on("reconnect", () => setStatus("reconnecting…", false));
   client.on("close", () => setStatus("disconnected", false));
   client.on("error", () => setStatus("error", false));
@@ -210,10 +376,14 @@ function connect() {
         p = Math.atan2(-d.ax, Math.sqrt(d.ay*d.ay + d.az*d.az)) * k;
       }
       if (typeof r === "number" && typeof p === "number") {
+        // Sample index & window pruning
+        const ts = (typeof d.ts_ms === "number") ? d.ts_ms : Date.now();
+        buf.push({ idx: idx++, ts, roll: r, pitch: p });
+        pruneByWindow(parseInt($("winSec").value,10) || 120);
+        updateCharts();
         $("last").textContent = `seq=${d.seq ?? "?"}  roll=${r.toFixed(2)}°  pitch=${p.toFixed(2)}°`;
-        pushPoint(chart, r, p);
       }
-    } catch {}
+    } catch(e) { $("last").textContent = "parse error"; }
   });
 }
 
@@ -222,12 +392,19 @@ function disconnect(){
   setStatus("disconnected");
 }
 
-document.getElementById("btnUnlock").addEventListener("click", unlock);
-document.getElementById("btnConnect").addEventListener("click", connect);
-document.getElementById("btnDisconnect").addEventListener("click", disconnect);
-document.getElementById("btnClear").addEventListener("click", () => {
-  if (!chart) return; chart.data.labels.length=0; chart.data.datasets[0].data.length=0; chart.data.datasets[1].data.length=0; chart.update("none");
-});
+function clearBuffers(clearChartsToo=false){
+  buf.length=0; idx=0; rollPeaks.length=0; pitchPeaks.length=0; srEWMA=null;
+  if (clearChartsToo && tsChart && boxChart) {
+    tsChart.data.labels = [];
+    tsChart.data.datasets.forEach(ds => ds.data = []);
+    tsChart.update("none");
+    boxChart.data.datasets[0].data = [
+      {min:0,q1:0,median:0,q3:0,max:0},
+      {min:0,q1:0,median:0,q3:0,max:0},
+    ];
+    boxChart.update("none");
+  }
+}
 </script>
 </body>
 </html>
