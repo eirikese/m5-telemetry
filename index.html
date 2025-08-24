@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-  <title>Roll & Pitch — Live v1.0.1 (2025-08-24)</title>
+  <title>Roll & Pitch — Live v1.0.2 (2025-08-24)</title>
   <meta name="theme-color" content="#0b1220"/>
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -11,8 +11,8 @@
 
   <style>
     :root { 
-      --bg: #0b1220; --bg2:#121a2c; --card:#0f1a31; --muted:#92a1bd; --text:#e6eefc; --accent:#4cc9f0; --accent2:#f72585;
-      --ok:#6bd66b; --bad:#ff6b6b; --border:#223050;
+      --bg:#0b1220; --bg2:#121a2c; --card:#0f1a31; --muted:#92a1bd; --text:#e6eefc; --accent:#4cc9f0; --accent2:#f72585;
+      --ok:#6bd66b; --bad:#ff6b6b; --border:#223050; --warn:#ffad60; --rec:#ff4d4d;
     }
     * { box-sizing: border-box; }
     html, body { height:100%; }
@@ -45,9 +45,10 @@
     .half { flex: 1 1 320px; min-width: 300px; }
 
     .small { font-size: 12px; color: var(--muted); }
-    .num { font-weight:700; }
+    .num { font-weight:700; font-size: clamp(22px, 5.8vw, 34px); line-height: 1.15; }
+    .num-sm { font-weight:700; font-size: clamp(18px, 4.6vw, 28px); }
     .btns { display:flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-    button, .btn { padding: 9px 12px; border-radius: 10px; border:1px solid var(--border); background:#152341; color:var(--text); cursor:pointer; }
+    button, .btn { padding: 10px 14px; border-radius: 10px; border:1px solid var(--border); background:#152341; color:var(--text); cursor:pointer; }
     input { width: 100%; padding: 10px 12px; border-radius: 10px; border:1px solid var(--border); background:#0e1730; color:var(--text); }
     label { display:block; font-size: 12px; color: var(--muted); margin-bottom: 6px; }
     .grid { display:grid; grid-template-columns: 1fr 1fr; gap: 10px; }
@@ -58,6 +59,19 @@
 
     .plot { position:relative; height: 45vh; min-height: 280px; width: 100%; }
     canvas { display:block; }
+
+    /* Record button blinking */
+    .record-btn { border-color:var(--border); }
+    .recording { background:#4a1111; border-color:#ff7a7a; color:#fff; }
+    .recording::before { content:"● "; color:var(--rec); }
+    @keyframes pulse {
+      0% { box-shadow: 0 0 0 0 rgba(255,77,77,0.85); }
+      70% { box-shadow: 0 0 0 12px rgba(255,77,77,0); }
+      100% { box-shadow: 0 0 0 0 rgba(255,77,77,0); }
+    }
+    .blink { animation: pulse 1s infinite; }
+    .range-row { display:grid; grid-template-columns: 1fr auto; gap:10px; align-items:center; }
+    input[type="range"] { width: 100%; accent-color: var(--accent); }
   </style>
 
   <!-- libs -->
@@ -68,7 +82,7 @@
   <div class="topbar">
     <div class="app-title">Roll &amp; Pitch — Live</div>
     <div class="spacer"></div>
-    <div class="ver">v1.0.1 (2025-08-24)</div>
+    <div class="ver">v1.0.2 (2025-08-24)</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -99,7 +113,7 @@
         <div class="card half">
           <div style="font-weight:700; margin-bottom:8px;">Now</div>
           <div class="small">Status: <span id="status" class="bad">disconnected</span></div>
-          <div class="small">WSS: <span id="url" class="num"></span></div>
+          <div class="small">WSS: <span id="url" class="num-sm"></span></div>
           <div class="small" id="last"></div>
           <div class="grid" style="margin-top:10px">
             <div>
@@ -119,6 +133,10 @@
               <div class="num" id="pitchHz">–</div>
             </div>
           </div>
+          <div class="btns" style="margin-top:12px">
+            <button id="btnRecord" class="record-btn">Start Recording</button>
+          </div>
+          <div class="small" id="recInfo"></div>
         </div>
       </div>
     </section>
@@ -186,9 +204,9 @@
         <div class="card half">
           <div style="font-weight:700; margin-bottom:8px;">Analysis Window</div>
           <div class="grid">
-            <div>
-              <label>Window (seconds)</label>
-              <input id="winSec" value="60"/>
+            <div class="range-row" style="grid-column:1/-1;">
+              <input id="winSecRange" type="range" min="5" max="600" step="5" value="60"/>
+              <input id="winSec" type="number" min="5" max="600" step="5" value="60" style="width:90px;"/>
             </div>
             <div>
               <label>Min peak distance (ms)</label>
@@ -211,7 +229,7 @@
 
   <script>
   // ====== VERSION ======
-  const APP_VERSION = "v1.0.1 (2025-08-24)";
+  const APP_VERSION = "v1.0.2 (2025-08-24)";
 
   // ====== Tabs ======
   const tabButtons = document.querySelectorAll('.tabbtn');
@@ -277,6 +295,10 @@
   const timesMs=[]; const rollVals=[]; const pitchVals=[];
   let t0=null; const rollSeries=[]; const pitchSeries=[]; let rollPeakPts=[]; let pitchPeakPts=[];
   const MAX_KEEP_SEC=600;
+
+  // Recording
+  let recActive=false; let recRows=[]; let recStartedAt=null;
+  const btnRecord = $('btnRecord'); const recInfo = $('recInfo');
 
   // Chart.js defaults for dark theme
   Chart.defaults.color = '#dfe7ff';
@@ -349,6 +371,70 @@
     $('pitchNow').textContent= (lastP!==undefined)? lastP.toFixed(2) : '–';
   }
 
+  // ====== Window controls (slider + number sync) ======
+  const winRange = $('winSecRange'); const winNum = $('winSec');
+  function applyWindow(val){
+    const v = Math.max(5, Math.min(600, parseInt(val||'60',10)));
+    winRange.value = v; winNum.value = v;
+    const now = timesMs.length ? timesMs[timesMs.length-1] : Date.now();
+    recomputePeaksAndStats(now);
+    if (chartTS) chartTS.update('none');
+  }
+  winRange.addEventListener('input', e => applyWindow(e.target.value));
+  winNum.addEventListener('change', e => applyWindow(e.target.value));
+
+  // ====== Recording helpers ======
+  function fmt2(n){ return n.toString().padStart(2,'0'); }
+  function csvEscape(s){ return String(s).replace(/"/g,'""'); }
+  function startRecording(){
+    recActive = true; recRows = [];
+    recStartedAt = new Date();
+    btnRecord.textContent = "Stop & Save";
+    btnRecord.classList.add('recording','blink');
+    recInfo.textContent = "Recording… 0 samples";
+    log("recording started");
+  }
+  function stopRecordingAndSave(){
+    recActive = false;
+    btnRecord.textContent = "Start Recording";
+    btnRecord.classList.remove('recording','blink');
+    if (!recRows.length){
+      recInfo.textContent = "No samples recorded.";
+      log("no samples to save");
+      return;
+    }
+    // Build CSV
+    const header = ['timestamp_ms','iso_time','elapsed_s','seq','roll_deg','pitch_deg'];
+    const lines = [header.join(',')];
+    for (const r of recRows){
+      const iso = new Date(r.t).toISOString();
+      lines.push([
+        r.t,
+        `"${csvEscape(iso)}"`,
+        ( (t0!==null)? ((r.t - t0)/1000).toFixed(3) : '' ),
+        (r.seq ?? ''),
+        r.roll.toFixed(6),
+        r.pitch.toFixed(6)
+      ].join(','));
+    }
+    const csv = lines.join('\n');
+    const blob = new Blob([csv], {type:'text/csv'});
+    // filename
+    const d = recStartedAt || new Date();
+    const fname = `rollpitch_${d.getFullYear()}-${fmt2(d.getMonth()+1)}-${fmt2(d.getDate())}_${fmt2(d.getHours())}-${fmt2(d.getMinutes())}-${fmt2(d.getSeconds())}.csv`;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = fname;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+    recInfo.textContent = `Saved ${recRows.length} samples to ${fname}`;
+    log(`saved CSV (${recRows.length} rows)`);
+  }
+  btnRecord.addEventListener('click', ()=>{
+    if (!recActive) startRecording(); else stopRecordingAndSave();
+  });
+
   // ====== Unlock/Connect ======
   document.getElementById('btnUnlock').addEventListener('click', async ()=>{
     const pwd = $('pw').value;
@@ -365,6 +451,7 @@
       chartTS = makeTimeseries();
       setStatus('unlocked — not connected', false);
       showTab('plot');
+      applyWindow(winNum.value);
       if ($('autoconn').checked) connect();
     } catch(e) {
       $('unlockMsg').textContent='Wrong password or corrupted ciphertext.';
@@ -401,6 +488,11 @@
         rollSeries.push({x:(t - t0)/1000, y: roll}); pitchSeries.push({x:(t - t0)/1000, y: pitch});
         pruneOld(t);
         $('last').textContent = `seq=${d.seq ?? '?' }  roll=${roll.toFixed(2)}°  pitch=${pitch.toFixed(2)}°`;
+        // record row if active
+        if (recActive) {
+          recRows.push({ t, seq: d.seq, roll, pitch });
+          recInfo.textContent = `Recording… ${recRows.length} samples`;
+        }
         recomputePeaksAndStats(t);
         chartTS.update('none');
       } catch(e) { log('parse error: '+e); }
