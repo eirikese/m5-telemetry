@@ -111,8 +111,6 @@
         </div>
         <div class="card half">
           <div style="font-weight:700; margin-bottom:8px;">Now</div>
-          <div class="small">Status: <span id="status" class="bad">disconnected</span></div>
-          <div class="tiny mono" style="word-break:break-all;">WSS: <span id="url"></span></div>
           <div class="small" id="last"></div>
           <div class="grid" style="margin-top:10px">
             <div>
@@ -134,8 +132,8 @@
           </div>
           <div class="btns" style="margin-top:12px">
             <button id="btnRecord" class="record-btn">Start Recording</button>
+            <div class="small" id="recInfo" style="align-self:center;margin-left:6px;"></div>
           </div>
-          <div class="small" id="recInfo"></div>
         </div>
       </div>
     </section>
@@ -149,7 +147,7 @@
             <div><div class="small">Mean</div><div class="num" id="rollMean">–</div></div>
             <div><div class="small">Std</div><div class="num" id="rollStd">–</div></div>
             <div><div class="small">Peaks</div><div class="num" id="rollPk">0</div></div>
-            <div><div class="small">Freq (Hz)</div><div class="num" id="rollHzStats">–</div></div>
+            <div><div class="small">Freq (Hz)</div><div class="num" id="rollHz2">–</div></div>
           </div>
         </div>
         <div class="card half">
@@ -158,7 +156,7 @@
             <div><div class="small">Mean</div><div class="num" id="pitchMean">–</div></div>
             <div><div class="small">Std</div><div class="num" id="pitchStd">–</div></div>
             <div><div class="small">Peaks</div><div class="num" id="pitchPk">0</div></div>
-            <div><div class="small">Freq (Hz)</div><div class="num" id="pitchHzStats">–</div></div>
+            <div><div class="small">Freq (Hz)</div><div class="num" id="pitchHz2">–</div></div>
           </div>
         </div>
       </div>
@@ -195,7 +193,11 @@
               <input id="autoconn" type="checkbox" checked/>
             </div>
           </div>
-          <div class="btns">
+          <div class="small" style="margin-top:8px;">
+            Status: <span id="status" class="bad">disconnected</span><br/>
+            WSS: <span id="url" class="tiny mono" style="word-break:break-all;"></span>
+          </div>
+          <div class="btns" style="margin-top:8px">
             <button id="btnConnect">Connect</button>
             <button id="btnDisconnect">Disconnect</button>
             <button id="btnClear">Clear Data</button>
@@ -203,7 +205,7 @@
         </div>
 
         <div class="card half">
-          <div style="font-weight:700; margin-bottom:8px;">Windows</div>
+          <div style="font-weight:700; margin-bottom:8px;">Windows & Peaks</div>
           <div class="grid">
             <div style="grid-column:1/-1;">
               <label>Timeseries View Window (seconds)</label>
@@ -213,7 +215,7 @@
               </div>
             </div>
             <div style="grid-column:1/-1;">
-              <label>Analysis Window (seconds) — used for stats & peak detection</label>
+              <label>Analysis Window (seconds) — stats & peak detection</label>
               <div class="range-row">
                 <input id="winSecRange" type="range" min="5" max="600" step="5" value="10"/>
                 <input id="winSec" type="number" min="5" max="600" step="5" value="10" style="width:90px;"/>
@@ -267,9 +269,9 @@
   async function decryptCreds(passphrase, blobB64) {
     const raw = atob(blobB64);
     const j = JSON.parse(raw);
-    const salt = b64d(j.salt), iv = b64d(j.iv), ct = b64d(j.ct);
-    const key = await deriveKey(passphrase, salt);
-    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ct);
+    theSalt = b64d(j.salt); theIv = b64d(j.iv); theCt = b64d(j.ct);
+    const key = await deriveKey(passphrase, theSalt);
+    const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: theIv }, key, theCt);
     return JSON.parse(new TextDecoder().decode(new Uint8Array(pt)));
   }
 
@@ -308,8 +310,7 @@
   const MAX_KEEP_SEC=600;
 
   // Recording
-  let recActive=false; let recRows=[]; let recStartedAt=null;
-  const MAX_RECORD_SAMPLES = 200000; // soft guard (≈ 5.5h at 10Hz)
+  let recActive=false; let recRows=[]; let recStartedAt=null; let recTimer=null;
   const btnRecord = $('btnRecord'); const recInfo = $('recInfo');
 
   // Chart.js defaults for dark theme
@@ -331,15 +332,11 @@
       options:{
         animation:false, responsive:true, maintainAspectRatio:false,
         scales:{
-          x:{
+          x:{ 
             type:'linear',
             title:{display:true,text:'time (s from start)'},
             ticks:{
-              // Prefer format API (no decimals) + fallback callback
-              format:{ maximumFractionDigits:0, minimumFractionDigits:0 },
-              callback:(v)=> Math.round(v).toString(),
-              maxTicksLimit: 10,
-              autoSkip: true
+              callback: (val)=> Number(val).toFixed(1)  // fixed decimals → no label flicker
             }
           },
           y:{ title:{display:true,text:'degrees'} }
@@ -364,8 +361,8 @@
     const nowSec = (nowMs - t0)/1000;
     const xmin = Math.max(0, nowSec - currentViewSec);
     const xmax = Math.max(currentViewSec, nowSec);
-    chartTS.options.scales.x.min = Math.floor(xmin);
-    chartTS.options.scales.x.max = Math.ceil(xmax);
+    chartTS.options.scales.x.min = Number(xmin.toFixed(1));
+    chartTS.options.scales.x.max = Number(xmax.toFixed(1));
     chartTS.update('none');
   }
   viewRange.addEventListener('input', e => applyViewWindow(e.target.value));
@@ -388,16 +385,21 @@
   function csvEscape(s){ return String(s).replace(/"/g,'""'); }
   function startRecording(){
     recActive = true; recRows = [];
-    recStartedAt = new Date();
+    recStartedAt = Date.now();
     btnRecord.textContent = "Stop & Save";
     btnRecord.classList.add('recording','blink');
-    recInfo.textContent = "Recording… 0 samples";
+    if (recTimer) { clearInterval(recTimer); recTimer=null; }
+    recTimer = setInterval(()=>{
+      const sec = (Date.now() - recStartedAt)/1000;
+      recInfo.textContent = `Recording… ${sec.toFixed(1)} s`;
+    }, 200);
     log("recording started");
   }
   function stopRecordingAndSave(){
     recActive = false;
     btnRecord.textContent = "Start Recording";
     btnRecord.classList.remove('recording','blink');
+    if (recTimer) { clearInterval(recTimer); recTimer=null; }
     if (!recRows.length){
       recInfo.textContent = "No samples recorded.";
       log("no samples to save");
@@ -411,7 +413,7 @@
     }
     const csv = lines.join('\n');
     const blob = new Blob([csv], {type:'text/csv'});
-    const d = recStartedAt || new Date();
+    const d = new Date(recStartedAt || Date.now());
     const fname = `rollpitch_${d.getFullYear()}-${fmt2(d.getMonth()+1)}-${fmt2(d.getDate())}_${fmt2(d.getHours())}-${fmt2(d.getMinutes())}-${fmt2(d.getSeconds())}.csv`;
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = fname; document.body.appendChild(a); a.click();
@@ -450,10 +452,12 @@
       let sum=0,c=0; for(let i=1;i<peaks.length;i++){ const dt=(peaks[i].t - peaks[i-1].t)/1000; if (dt>0){ sum+=dt; c++; } }
       return c? 1/(sum/c) : NaN; }
     const fR=freq(rPeaks), fP=freq(pPeaks);
+    // Plot tab
     $('rollHz').textContent  = isFinite(fR)? fR.toFixed(2) : '–';
     $('pitchHz').textContent = isFinite(fP)? fP.toFixed(2) : '–';
-    $('rollHzStats').textContent  = isFinite(fR)? fR.toFixed(2) : '–';
-    $('pitchHzStats').textContent = isFinite(fP)? fP.toFixed(2) : '–';
+    // Stats tab
+    $('rollHz2').textContent  = isFinite(fR)? fR.toFixed(2) : '–';
+    $('pitchHz2').textContent = isFinite(fP)? fP.toFixed(2) : '–';
     $('rollPk').textContent  = rPeaks.length;
     $('pitchPk').textContent = pPeaks.length;
 
@@ -484,8 +488,8 @@
       chartTS = makeTimeseries();
       setStatus('unlocked — not connected', false);
       showTab('plot');
-      applyWindow($('winSec').value);        // default 10s
-      applyViewWindow($('viewSec').value);   // default 10s
+      applyWindow($('winSec').value);      // default 10s analysis
+      applyViewWindow($('viewSec').value); // default 10s view
       if ($('autoconn').checked) connect();
     } catch(e) {
       $('unlockMsg').textContent='Wrong password or corrupted ciphertext.';
@@ -522,14 +526,7 @@
         rollSeries.push({x:(t - t0)/1000, y: roll}); pitchSeries.push({x:(t - t0)/1000, y: pitch});
         pruneOld(t);
         $('last').textContent = `seq=${d.seq ?? '?' }  roll=${roll.toFixed(2)}°  pitch=${pitch.toFixed(2)}°`;
-        if (recActive) {
-          recRows.push({ t, seq: d.seq, roll, pitch });
-          recInfo.textContent = `Recording… ${recRows.length} samples`;
-          if (recRows.length >= MAX_RECORD_SAMPLES) {
-            log('recording limit hit — auto saving');
-            stopRecordingAndSave();
-          }
-        }
+        if (recActive) { recRows.push({ t, seq: d.seq, roll, pitch }); /* seconds display handled by interval */ }
         recomputePeaksAndStats(t);
         updateAxisRange(); // keep chart scrolled to latest respecting view window
       } catch(e) { log('parse error: '+e); }
