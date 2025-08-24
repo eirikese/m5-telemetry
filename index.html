@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Roll & Pitch — Live (Protected)</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif; }
+    body { margin: 16px; }
+    h2 { margin: 0 0 12px 0; }
+    .row { display: flex; gap: 16px; flex-wrap: wrap; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; box-shadow: 0 1px 6px rgba(0,0,0,.05); }
+    .grow { flex: 1 1 540px; }
+    .half { flex: 1 1 320px; min-width: 300px; }
+    .muted { color: #666; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; }
+    .btns { display:flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    button { padding: 8px 10px; border-radius: 8px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
+    input, select { width: 100%; padding: 8px 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 8px; }
+    label { font-size: 12px; color: #555; margin-bottom: 4px; display:block; }
+    .hidden { display: none; }
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <h2>Roll &amp; Pitch — Live Web Plot</h2>
+
+  <!-- Unlock panel -->
+  <div id="gate" class="card half">
+    <p><b>Protected dashboard</b>. Enter the site password to view the plot. (Use a read‑only MQTT credential in the ciphertext.)</p>
+    <div>
+      <label>Site password</label>
+      <input id="pw" type="password" placeholder="Enter password"/>
+    </div>
+    <div class="btns">
+      <button id="btnUnlock">Unlock</button>
+    </div>
+    <p class="muted mono" id="unlockMsg"></p>
+  </div>
+
+  <!-- App panel -->
+  <div id="app" class="hidden">
+    <div class="row">
+      <div class="card half">
+        <div class="row" style="gap:10px">
+          <div style="flex:1 1 180px">
+            <label>Host</label>
+            <input id="host" value="afe7881f82fe42929e4a5370cddc7285.s1.eu.hivemq.cloud"/>
+          </div>
+          <div style="flex:0 0 120px">
+            <label>WS Port</label>
+            <input id="port" value="8884"/>
+          </div>
+          <div style="flex:0 0 120px">
+            <label>Path</label>
+            <input id="path" value="/mqtt"/>
+          </div>
+        </div>
+        <div class="row" style="gap:10px; margin-top:8px">
+          <div style="flex:1 1 260px">
+            <label>Topic</label>
+            <input id="topic" value="m5/dev001/telemetry"/>
+          </div>
+          <div style="flex:1 1 220px">
+            <label>Client ID (auto)</label>
+            <input id="cid" readonly/>
+          </div>
+        </div>
+        <div class="btns">
+          <button id="btnConnect">Connect</button>
+          <button id="btnDisconnect">Disconnect</button>
+          <button id="btnClear">Clear Plot</button>
+        </div>
+        <div style="margin-top:10px">
+          <div>Status: <span id="status" class="muted">locked</span></div>
+          <div class="muted small">WSS URL: <span class="mono" id="url"></span></div>
+          <div class="muted" id="last"></div>
+        </div>
+        <p class="muted" style="margin-top:8px">
+          Tip: The MQTT username/password are decrypted in browser after you enter the site password. Use a <b>read‑only</b> viewer credential limited to your topic.
+        </p>
+      </div>
+      <div class="card grow">
+        <canvas id="chart" height="140"></canvas>
+      </div>
+    </div>
+  </div>
+
+<script>
+// ====== AES-GCM helpers (Web Crypto) ======
+const b64d = (b64) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+const b64e = (arr) => btoa(String.fromCharCode.apply(null, arr));
+async function deriveKey(password, salt) {
+  const enc = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
+  return crypto.subtle.deriveKey(
+    { name: "PBKDF2", salt, iterations: 120000, hash: "SHA-256" },
+    keyMaterial,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+async function decryptCreds(passphrase, blobB64) {
+  // blob format: base64 of JSON: {salt, iv, ct} each base64
+  const raw = atob(blobB64);
+  const j = JSON.parse(raw);
+  const salt = b64d(j.salt), iv = b64d(j.iv), ct = b64d(j.ct);
+  const key = await deriveKey(passphrase, salt);
+  const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
+  const dec = new TextDecoder().decode(new Uint8Array(pt));
+  // plaintext is JSON: {user:"...", pass:"..."}
+  return JSON.parse(dec);
+}
+
+// ====== CONFIG ======
+// Paste the encrypted blob from encrypt.html here (base64 string of {"salt","iv","ct"} JSON)
+const ENCRYPTED_CREDS = "eyJzYWx0IjoiK2JnaDE0dFVtZjFOR21Ba3RMNTdaUT09IiwiaXYiOiJ2UnRmbWZjOThqd1R5TGc2IiwiY3QiOiJSWVB1ZWQvdGFUaTRtNE56N3BrRGNMRzFEY2xrM1VVa28yQlZBQXk0RGtBN2doeUZXczZTUUJia0l0bUZUWkZWeHUxcFlrUVhFaXNGR1hJWSJ9";
+
+// ====== UI / App logic ======
+const $ = (id) => document.getElementById(id);
+let client = null;
+let unlocked = false;
+let viewer = { user: null, pass: null };
+
+function setStatus(text, ok=false) {
+  $("status").textContent = text;
+  $("status").className = ok ? "ok" : "muted";
+}
+
+function pushPoint(chart, r, p) {
+  const labels = chart.data.labels;
+  const rollData  = chart.data.datasets[0].data;
+  const pitchData = chart.data.datasets[1].data;
+  labels.push(labels.length);
+  rollData.push(r); pitchData.push(p);
+  if (labels.length > 1200) { labels.shift(); rollData.shift(); pitchData.shift(); }
+  chart.update("none");
+}
+
+function buildChart() {
+  const ctx = document.getElementById("chart").getContext("2d");
+  return new Chart(ctx, {
+    type: "line",
+    data: { labels: [], datasets: [
+      { label: "roll (deg)", data: [], pointRadius: 0, borderWidth: 2, tension: 0.15 },
+      { label: "pitch (deg)", data: [], pointRadius: 0, borderWidth: 2, tension: 0.15 },
+    ]},
+    options: {
+      animation: false,
+      responsive: true, maintainAspectRatio: false,
+      scales: { x: { title: { display:true, text:"samples" }}, y: { title: { display:true, text:"degrees" }}},
+      plugins: { legend: { position: "bottom" } }
+    }
+  });
+}
+let chart = null;
+
+async function unlock() {
+  const pwd = $("pw").value;
+  if (!pwd) { $("unlockMsg").textContent = "Enter a password."; return; }
+  if (!ENCRYPTED_CREDS || ENCRYPTED_CREDS === "PASTE_CIPHERTEXT_HERE") {
+    $("unlockMsg").textContent = "No encrypted creds embedded. Generate with encrypt.html and paste into ENCRYPTED_CREDS.";
+    return;
+  }
+  try {
+    const creds = await decryptCreds(pwd, ENCRYPTED_CREDS);
+    viewer.user = creds.user; viewer.pass = creds.pass;
+    unlocked = true;
+    $("gate").classList.add("hidden");
+    $("app").classList.remove("hidden");
+    setStatus("unlocked — not connected");
+    $("cid").value = "web-" + Math.random().toString(16).slice(2, 10);
+    chart = buildChart();
+  } catch (e) {
+    $("unlockMsg").textContent = "Wrong password or corrupted ciphertext.";
+  }
+}
+
+function connect() {
+  if (!unlocked) return;
+  if (client) { try { client.end(true); } catch(e){} client = null; }
+  const host = $("host").value.trim(), port = $("port").value.trim(), path = $("path").value.trim() || "/mqtt";
+  const topic = $("topic").value.trim();
+  const cid = $("cid").value || ("web-" + Math.random().toString(16).slice(2, 10));
+  $("cid").value = cid;
+  const url = `wss://${host}:${port}${path}`;
+  $("url").textContent = url;
+
+  client = mqtt.connect(url, {
+    protocolVersion: 4, clean: true, connectTimeout: 8000,
+    username: viewer.user, password: viewer.pass,
+    clientId: cid, keepalive: 30, resubscribe: true
+  });
+  client.on("connect", () => {
+    setStatus("connected", true);
+    client.subscribe(topic, { qos: 0 });
+  });
+  client.on("reconnect", () => setStatus("reconnecting…", false));
+  client.on("close", () => setStatus("disconnected", false));
+  client.on("error", () => setStatus("error", false));
+  client.on("message", (topic, payload) => {
+    try {
+      const d = JSON.parse(new TextDecoder().decode(payload));
+      let r = d.roll_deg, p = d.pitch_deg;
+      if ((r === undefined || p === undefined) && d.ax !== undefined) {
+        const k = 180 / Math.PI;
+        r = Math.atan2(d.ay, d.az) * k;
+        p = Math.atan2(-d.ax, Math.sqrt(d.ay*d.ay + d.az*d.az)) * k;
+      }
+      if (typeof r === "number" && typeof p === "number") {
+        $("last").textContent = `seq=${d.seq ?? "?"}  roll=${r.toFixed(2)}°  pitch=${p.toFixed(2)}°`;
+        pushPoint(chart, r, p);
+      }
+    } catch {}
+  });
+}
+
+function disconnect(){
+  if (client) { try { client.end(true); } catch(e){} client = null; }
+  setStatus("disconnected");
+}
+
+document.getElementById("btnUnlock").addEventListener("click", unlock);
+document.getElementById("btnConnect").addEventListener("click", connect);
+document.getElementById("btnDisconnect").addEventListener("click", disconnect);
+document.getElementById("btnClear").addEventListener("click", () => {
+  if (!chart) return; chart.data.labels.length=0; chart.data.datasets[0].data.length=0; chart.data.datasets[1].data.length=0; chart.update("none");
+});
+</script>
+</body>
+</html>
