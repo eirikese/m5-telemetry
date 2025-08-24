@@ -26,7 +26,7 @@
     .kpi .box { border:1px solid #eee; border-radius:10px; padding:10px; }
     .k { font-size: 12px; color:#333; }
     .v { font-weight: 700; }
-    pre { background:#f6f8fa; padding:8px; border-radius:8px; overflow:auto; max-height:100px; }
+    pre { background:#f6f8fa; padding:8px; border-radius:8px; overflow:auto; max-height:120px; }
     small { font-size:12px; }
   </style>
   <!-- libs -->
@@ -35,7 +35,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot@4.4.1/build/index.umd.min.js"></script>
 </head>
 <body>
-  <h2>Roll &amp; Pitch — Live Web Plot <small class="muted">Protected • Boxplots • Peak detection</small></h2>
+  <h2>Roll &amp; Pitch — Live Web Plot <small class="muted">(Protected, Boxplots & Peaks)</small></h2>
 
   <!-- Unlock panel -->
   <div id="gate" class="card half">
@@ -68,7 +68,7 @@
             <input id="path" value="/mqtt"/>
           </div>
           <div>
-            <label>Topic (exact JSON topic)</label>
+            <label>Topic</label>
             <input id="topic" value="m5/dev001/telemetry"/>
           </div>
           <div>
@@ -140,7 +140,7 @@
   </div>
 
 <script>
-/* ========= AES-GCM helpers (Web Crypto) ========= */
+// ====== AES-GCM helpers (Web Crypto) ======
 const b64d = (b64) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 async function deriveKey(password, salt) {
   const enc = new TextEncoder();
@@ -162,11 +162,10 @@ async function decryptCreds(passphrase, blobB64) {
   return JSON.parse(new TextDecoder().decode(new Uint8Array(pt))); // {user, pass}
 }
 
-/* ========= CONFIG =========
-   Replace with encrypted blob (from encrypt.html) */
-const ENCRYPTED_CREDS = "eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9";
+// ====== CONFIG ======
+const ENCRYPTED_CREDS = "eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9"; // <-- replace with blob from encrypt.html
 
-/* ========= UI / STATE ========= */
+// ====== UI / STATE ======
 const $ = (id) => document.getElementById(id);
 let client = null, unlocked = false, viewer = {user:null, pass:null};
 let tsChart = null, boxChart = null;
@@ -189,7 +188,7 @@ document.getElementById("btnUnlock").addEventListener("click", async () => {
     $("app").classList.remove("hidden");
     $("cid").value = "web-" + Math.random().toString(16).slice(2, 10);
     setStatus("unlocked — not connected");
-    initCharts();                     // ensure charts exist BEFORE any connection
+    initCharts();                      // ensure charts exist before any connection/messages
     if ($("autoSub").value === "1") connect();
   } catch (e) {
     $("unlockMsg").textContent = "Wrong password or corrupted ciphertext.";
@@ -202,12 +201,12 @@ document.getElementById("btnClear").addEventListener("click", () => clearBuffers
 
 function setStatus(text, ok=false) { $("status").value = text; $("status").className = ok ? "ok" : "bad"; }
 
-/* ========= Data buffers & utils ========= */
+// ====== Data buffers & utils ======
 let buf = [];            // {idx, ts, roll, pitch}
 let idx = 0;
-let rollPeaks = [];      // indexes in buf[] space
+let rollPeaks = [];      // peak indices
 let pitchPeaks = [];
-let srEWMA = null;       // sample rate EWMA
+let srEWMA = null;       // sample rate estimate (EWMA)
 
 function median(arr) {
   if (!arr.length) return NaN;
@@ -221,13 +220,9 @@ function MAD(arr, med) {
 }
 function quantiles(arr) {
   if (!arr.length) return {min:NaN,q1:NaN,median:NaN,q3:NaN,max:NaN};
-  const a = [...arr].sort((x,y)=>x-y);
-  const q = (p)=> {
-    const pos = (a.length - 1) * p;
-    const base = Math.floor(pos), rest = pos - base;
-    if (a[base+1] !== undefined) return a[base] + rest*(a[base+1]-a[base]);
-    return a[base];
-  };
+  const a=[...arr].sort((x,y)=>x-y);
+  const q=(p)=>{ const pos=(a.length-1)*p; const base=Math.floor(pos), rest=pos-base;
+    return a[base+1]!==undefined? a[base]+rest*(a[base+1]-a[base]) : a[base]; };
   return {min:a[0], q1:q(0.25), median:q(0.5), q3:q(0.75), max:a[a.length-1]};
 }
 function pruneByWindow(seconds) {
@@ -236,7 +231,6 @@ function pruneByWindow(seconds) {
   const cutoff = latestTs - seconds*1000;
   const startLen = buf.length;
   while (buf.length && buf[0].ts < cutoff) buf.shift();
-  // After shift, indices in buf[].idx remain absolute; peak arrays filtered to ones still in window.
   const firstIdx = buf.length ? buf[0].idx : 0;
   rollPeaks = rollPeaks.filter(i => i >= firstIdx);
   pitchPeaks = pitchPeaks.filter(i => i >= firstIdx);
@@ -257,60 +251,60 @@ function detectPeaks(values, timestamps, kMAD, minDistSec, srHz) {
 }
 function estimateSampleRate(tsArr) {
   if (tsArr.length < 4) return null;
-  const dt = [];
-  for (let i=1;i<tsArr.length;i++) {
-    const d = (tsArr[i] - tsArr[i-1]) / 1000.0;
-    if (d>0 && d<5) dt.push(d);
-  }
+  const dt=[]; for (let i=1;i<tsArr.length;i++){ const d=(tsArr[i]-tsArr[i-1])/1000.0; if (d>0 && d<5) dt.push(d); }
   if (!dt.length) return null;
-  const medDt = median(dt);
-  return 1.0 / medDt;
+  const medDt = median(dt); return 1.0/medDt;
 }
 function peakFreq(peaks, tsArr) {
   if (peaks.length < 2) return null;
-  const periods = [];
-  for (let i=1;i<peaks.length;i++) {
-    const t = (tsArr[peaks[i]] - tsArr[peaks[i-1]]) / 1000.0;
-    if (t>0 && t<30) periods.push(t);
-  }
+  const periods=[]; for (let i=1;i<peaks.length;i++){ const t=(tsArr[peaks[i]]-tsArr[peaks[i-1]])/1000.0; if (t>0 && t<30) periods.push(t); }
   if (!periods.length) return null;
-  const p = median(periods);
-  return 1.0 / p;
+  const p = median(periods); return 1.0/p;
 }
 
-/* ========= Charts ========= */
+// ====== Charts ======
 function initCharts() {
-  if (tsChart && boxChart) return; // already initialized
+  if (tsChart && boxChart) return; // already inited
   const tsctx = document.getElementById("ts").getContext("2d");
+  const bctx  = document.getElementById("boxes").getContext("2d");
+
   tsChart = new Chart(tsctx, {
     type: "line",
     data: { labels: [], datasets: [
-      { label: "roll (deg)", data: [], pointRadius: 0, borderWidth: 2, tension: 0.15 },
+      { label: "roll (deg)",  data: [], pointRadius: 0, borderWidth: 2, tension: 0.15 },
       { label: "pitch (deg)", data: [], pointRadius: 0, borderWidth: 2, tension: 0.15 },
-      { label: "roll peaks", type: "scatter", data: [], pointRadius: 3, borderWidth: 0 },
+      { label: "roll peaks",  type: "scatter", data: [], pointRadius: 3, borderWidth: 0 },
       { label: "pitch peaks", type: "scatter", data: [], pointRadius: 3, borderWidth: 0 },
     ]},
     options: {
       animation: false, responsive: true, maintainAspectRatio: false,
-      scales: { x: { title: { display:true, text:"samples (latest at right)" }}, y: { title: { display:true, text:"degrees" }}} ,
+      scales: { x: { title: { display:true, text:"samples (latest at right)" }},
+               y: { title: { display:true, text:"degrees" } } },
       plugins: { legend: { position: "bottom" } }
     }
   });
-  const bctx = document.getElementById("boxes").getContext("2d");
+
   boxChart = new Chart(bctx, {
     type: "boxplot",
-    data: { labels: ["roll", "pitch"], datasets: [{ label: "Distribution (window)", data: [
-      {min:0,q1:0,median:0,q3:0,max:0},
-      {min:0,q1:0,median:0,q3:0,max:0},
-    ]}]},
-    options: { responsive:true, maintainAspectRatio:false, plugins:{ legend:{ position:"bottom" }}, scales:{ y:{ title:{display:true,text:"degrees"} } } }
+    data: { labels: ["roll", "pitch"], datasets: [{
+      label: "Distribution (window)",
+      data: [
+        {min:0,q1:0,median:0,q3:0,max:0},
+        {min:0,q1:0,median:0,q3:0,max:0},
+      ]
+    }]},
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ position:"bottom" } },
+      scales:{ y:{ title:{display:true,text:"degrees"} } }
+    }
   });
 }
 
 function updateCharts() {
-  if (!tsChart || !boxChart) return; // guard against race
-  if (!buf.length) return;
+  if (!tsChart || !boxChart) return; // guard: charts not ready yet
 
+  if (!buf.length) return;
   const labels = buf.map(p => p.idx);
   const roll = buf.map(p => p.roll);
   const pitch = buf.map(p => p.pitch);
@@ -352,11 +346,12 @@ function updateCharts() {
   $("wsize").textContent = buf.length + " samples";
 }
 
-/* ========= MQTT over WSS ========= */
+// ====== MQTT WSS ======
 function connect(){
   if (!unlocked) return;
-  // Ensure charts exist before any message lands
-  if (!tsChart || !boxChart) initCharts();
+
+  // Make sure charts exist before messages can arrive
+  initCharts();
 
   if (client) { try { client.end(true); } catch(e){} client = null; }
   const host = $("host").value.trim(), port = $("port").value.trim(), path = $("path").value.trim() || "/mqtt";
@@ -371,18 +366,23 @@ function connect(){
     username: viewer.user, password: viewer.pass,
     clientId: cid, keepalive: 30, resubscribe: true
   });
+
   client.on("connect", () => { setStatus("connected", true); client.subscribe(topic, { qos: 0 }); });
   client.on("reconnect", () => setStatus("reconnecting…", false));
   client.on("close", () => setStatus("disconnected", false));
   client.on("error", () => setStatus("error", false));
+
   client.on("message", (topic, payload) => {
     try {
       const txt = new TextDecoder().decode(payload);
-      $("raw").textContent = txt.slice(0, 500); // show sample of latest payload
+      $("raw").textContent = txt.slice(0, 500); // show first 500 chars for debugging
 
       let d = null;
       try { d = JSON.parse(txt); }
-      catch { $("last").textContent = "non-JSON payload on " + topic; return; }
+      catch (e) {
+        $("last").textContent = "non-JSON payload on topic: " + topic;
+        return;
+      }
 
       let r = d.roll_deg, p = d.pitch_deg;
       if ((r === undefined || p === undefined) && d.ax !== undefined && d.ay !== undefined && d.az !== undefined) {
@@ -390,16 +390,19 @@ function connect(){
         r = Math.atan2(d.ay, d.az) * k;
         p = Math.atan2(-d.ax, Math.sqrt(d.ay*d.ay + d.az*d.az)) * k;
       }
+
       if (typeof r === "number" && typeof p === "number") {
         const ts = (typeof d.ts_ms === "number") ? d.ts_ms : Date.now();
         buf.push({ idx: idx++, ts, roll: r, pitch: p });
         pruneByWindow(parseInt($("winSec").value,10) || 120);
-        // Safety: init charts if not yet ready (JIT)
+
+        // Charts may have been cleared; ensure they exist before update
         if (!tsChart || !boxChart) initCharts();
         updateCharts();
+
         $("last").textContent = `seq=${d.seq ?? "?"}  roll=${r.toFixed(2)}°  pitch=${p.toFixed(2)}°`;
       } else {
-        $("last").textContent = "JSON missing roll/pitch (or ax/ay/az).";
+        $("last").textContent = "JSON payload missing roll/pitch (or ax/ay/az).";
       }
     } catch(e) {
       $("last").textContent = "unexpected error in message handler";
