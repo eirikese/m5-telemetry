@@ -11,12 +11,12 @@
     .row { display: flex; gap: 16px; flex-wrap: wrap; align-items: stretch; }
     .card { border: 1px solid #ddd; border-radius: 12px; padding: 16px; box-shadow: 0 1px 6px rgba(0,0,0,.05); }
     .grow { flex: 1 1 560px; }
-    .half { flex: 1 1 320px; min-width: 300px; }
+    .half { flex: 1 1 360px; min-width: 320px; }
     .muted { color: #666; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace; }
     .btns { display:flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     button { padding: 8px 10px; border-radius: 8px; border: 1px solid #ccc; background: #fff; cursor: pointer; }
-    input { width: 100%; padding: 8px 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 8px; }
+    input[type="text"], input[type="number"], input[type="password"] { width: 100%; padding: 8px 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 8px; }
     label { font-size: 12px; color: #555; margin-bottom: 4px; display:block; }
     .hidden { display: none; }
     .ok { color: #067d00; }
@@ -24,15 +24,17 @@
     .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
     .num { font-weight: 600; }
     .small { font-size: 12px; }
-
-    /* --- Fix: give charts explicit container heights --- */
-    .plot-tall  { position: relative; height: 320px; width: 100%; }
-    .plot-short { position: relative; height: 220px; width: 100%; }
-    canvas { display: block; } /* remove inline baseline space */
+    .sl { display:grid; grid-template-columns: 1fr auto; gap: 8px; align-items:center; }
+    .sl input[type="range"] { width: 100%; }
+    /* Fixed plot heights */
+    .plot-tall  { position: relative; height: 340px; width: 100%; }
+    .plot-short { position: relative; height: 240px; width: 100%; }
+    canvas { display: block; }
   </style>
-  <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot"></script>
+  <!-- libs -->
+  <script src="https://cdn.jsdelivr.net/npm/mqtt@5/dist/mqtt.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot@4"></script>
 </head>
 <body>
   <h2>Roll &amp; Pitch — Live Web Plot</h2>
@@ -75,19 +77,26 @@
             <label>Client ID (auto)</label>
             <input id="cid" readonly/>
           </div>
-          <div>
+        </div>
+
+        <div class="card" style="margin-top:12px">
+          <div class="sl">
             <label>Window (seconds)</label>
-            <input id="winSec" value="120"/>
+            <span class="mono" id="winSecVal">120</span>
+            <input id="winSec" type="range" min="10" max="600" step="10" value="120"/>
           </div>
-          <div>
+          <div class="sl">
             <label>Min peak distance (ms)</label>
-            <input id="minDist" value="300"/>
+            <span class="mono" id="minDistVal">300</span>
+            <input id="minDist" type="range" min="100" max="3000" step="50" value="300"/>
           </div>
-          <div>
+          <div class="sl">
             <label>Min prominence (deg)</label>
-            <input id="minProm" value="1.0"/>
+            <span class="mono" id="minPromVal">1.0</span>
+            <input id="minProm" type="range" min="0.2" max="10" step="0.1" value="1.0"/>
           </div>
         </div>
+
         <div class="btns">
           <button id="btnConnect">Connect</button>
           <button id="btnDisconnect">Disconnect</button>
@@ -224,7 +233,7 @@ function makeTimeseries(){
       ]
     },
     options: {
-      animation: false, responsive: true, maintainAspectRatio: false,  /* critical: respects .plot-tall height */
+      animation: false, responsive: true, maintainAspectRatio: false,
       scales: {
         x: { title:{display:true,text:"samples (latest right)"}, ticks:{ maxTicksLimit: 10 } },
         y: { title:{display:true,text:"degrees"} }
@@ -237,6 +246,10 @@ function makeTimeseries(){
 
 function makeBoxplot(){
   const ctx = document.getElementById("chart_box").getContext("2d");
+  // Ensure plugin is registered
+  if (!Chart.registry.getController('boxplot')) {
+    console.warn('Boxplot controller not found; chartjs-chart-boxplot may not be loaded.');
+  }
   return new Chart(ctx, {
     type: "boxplot",
     data: {
@@ -250,7 +263,7 @@ function makeBoxplot(){
       }]
     },
     options: {
-      responsive: true, maintainAspectRatio: false, /* critical: respects .plot-short height */
+      responsive: true, maintainAspectRatio: false,
       plugins: { legend: { position: "bottom" } },
       scales: { y: { title:{display:true,text:"degrees"} } }
     }
@@ -264,12 +277,13 @@ function pushPoint(t, r, p){
 }
 
 function refreshCharts(){
+  if (!chartTS || !chartBox) return;
   const labels = xs.map((_,i)=>i);
   chartTS.data.labels = labels;
-  chartTS.data.datasets[0].data = rollArr;
-  chartTS.data.datasets[1].data = pitchArr;
-  chartTS.data.datasets[2].data = rollPeaks.map(pk => ({x: labels.length - (xs.length - pk.idx), y: pk.v}));
-  chartTS.data.datasets[3].data = pitchPeaks.map(pk => ({x: labels.length - (xs.length - pk.idx), y: pk.v}));
+  chartTS.data.datasets[0].data = rollArr.slice();
+  chartTS.data.datasets[1].data = pitchArr.slice();
+  chartTS.data.datasets[2].data = rollPeaks.map(pk => ({x: pk.idx, y: pk.v}));
+  chartTS.data.datasets[3].data = pitchPeaks.map(pk => ({x: pk.idx, y: pk.v}));
   chartTS.update("none");
 
   const rb = quantiles(rollArr);
@@ -365,7 +379,7 @@ function connect(){
   client.on("connect", () => { setStatus("connected", true); client.subscribe(topic, { qos: 0 }); });
   client.on("reconnect", () => setStatus("reconnecting…", false));
   client.on("close", () => setStatus("disconnected", false));
-  client.on("error", () => setStatus("error", false));
+  client.on("error", (e) => { console.error(e); setStatus("error", false); });
   client.on("message", (topic, payload) => {
     try{
       const d = JSON.parse(new TextDecoder().decode(payload));
@@ -382,13 +396,24 @@ function connect(){
         recomputePeaks();
         refreshCharts();
       }
-    } catch(e){ /* ignore parse errors */ }
+    } catch(e){ console.warn("parse error", e); }
   });
 }
 
 function disconnect(){
   if (client) { try { client.end(true); } catch(e){} client = null; }
   setStatus("disconnected");
+}
+
+// Slider bindings
+function bindSliders(){
+  const sWin = $("winSec"), sMinD = $("minDist"), sMinP = $("minProm");
+  const vWin = $("winSecVal"), vMinD = $("minDistVal"), vMinP = $("minPromVal");
+  const upd = () => { vWin.textContent=sWin.value; vMinD.textContent=sMinD.value; vMinP.textContent=sMinP.value; recomputePeaks(); refreshCharts(); };
+  sWin.addEventListener("input", upd);
+  sMinD.addEventListener("input", upd);
+  sMinP.addEventListener("input", upd);
+  upd();
 }
 
 document.getElementById("btnUnlock").addEventListener("click", unlock);
@@ -399,6 +424,7 @@ document.getElementById("btnClear").addEventListener("click", () => {
   rollPeaks.length=0; pitchPeaks.length=0;
   refreshCharts();
 });
+bindSliders();
 </script>
 </body>
 </html>
