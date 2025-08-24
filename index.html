@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
-  <title>Roll & Pitch — Live (Protected, Boxplots & Peaks)</title>
+  <title>Roll & Pitch — Live (Protected, Boxplots & Peaks) — Fixed Parser</title>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, sans-serif; }
     body { margin: 16px; }
@@ -26,6 +26,8 @@
     .kpi .box { border:1px solid #eee; border-radius:10px; padding:10px; }
     .k { font-size: 12px; color:#333; }
     .v { font-weight: 700; }
+    pre { background:#f6f8fa; padding:8px; border-radius:8px; overflow:auto; max-height:100px; }
+    small { font-size:12px; }
   </style>
   <!-- libs -->
   <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
@@ -33,7 +35,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot@4.4.1/build/index.umd.min.js"></script>
 </head>
 <body>
-  <h2>Roll &amp; Pitch — Live Web Plot (Protected)</h2>
+  <h2>Roll &amp; Pitch — Live Web Plot (Protected) <small>with robust parser</small></h2>
 
   <!-- Unlock panel -->
   <div id="gate" class="card half">
@@ -66,7 +68,7 @@
             <input id="path" value="/mqtt"/>
           </div>
           <div>
-            <label>Topic</label>
+            <label>Topic (use exact JSON topic: e.g. m5/dev001/telemetry)</label>
             <input id="topic" value="m5/dev001/telemetry"/>
           </div>
           <div>
@@ -112,6 +114,12 @@
         </div>
         <div class="muted small">WSS URL: <span class="mono" id="url"></span></div>
         <div class="muted" id="last"></div>
+        <div style="margin-top:8px">
+          <details>
+            <summary class="muted">Last raw payload (for debugging)</summary>
+            <pre id="raw" class="mono"></pre>
+          </details>
+        </div>
       </div>
 
       <div class="card grow">
@@ -134,7 +142,6 @@
 <script>
 // ====== AES-GCM helpers (Web Crypto) ======
 const b64d = (b64) => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-const b64e = (arr) => btoa(String.fromCharCode.apply(null, arr));
 async function deriveKey(password, salt) {
   const enc = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveKey"]);
@@ -156,13 +163,11 @@ async function decryptCreds(passphrase, blobB64) {
 }
 
 // ====== CONFIG ======
-// Replace with encrypted blob from encrypt.html
 const ENCRYPTED_CREDS = "eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9";
 
 // ====== UI ======
 const $ = (id) => document.getElementById(id);
 let client = null, unlocked = false, viewer = {user:null, pass:null};
-
 $("sens").addEventListener("input", ()=> $("sensVal").textContent = $("sens").value);
 $("minDist").addEventListener("input", ()=> $("minDistVal").textContent = $("minDist").value);
 
@@ -194,30 +199,14 @@ document.getElementById("btnClear").addEventListener("click", () => clearBuffers
 function setStatus(text, ok=false) { $("status").value = text; $("status").className = ok ? "ok" : "bad"; }
 
 // ====== Data buffers & utils ======
-let buf = [];            // {idx, ts, roll, pitch}
-let idx = 0;
-let rollPeaks = [];      // indexes of peaks
-let pitchPeaks = [];
-let srEWMA = null;       // sample rate estimate
-function median(arr) {
-  if (!arr.length) return NaN;
-  const a = [...arr].sort((x,y)=>x-y);
-  const m = Math.floor(a.length/2);
-  return a.length%2 ? a[m] : (a[m-1]+a[m])/2;
-}
-function MAD(arr, med) {
-  const dev = arr.map(v => Math.abs(v - med));
-  return median(dev);
-}
+let buf = []; let idx = 0;
+let rollPeaks = []; let pitchPeaks = [];
+let srEWMA = null;
+function median(arr) { if (!arr.length) return NaN; const a=[...arr].sort((x,y)=>x-y); const m=Math.floor(a.length/2); return a.length%2?a[m]:(a[m-1]+a[m])/2; }
+function MAD(arr, med) { const dev = arr.map(v => Math.abs(v-med)); return median(dev); }
 function quantiles(arr) {
   if (!arr.length) return {min:NaN,q1:NaN,median:NaN,q3:NaN,max:NaN};
-  const a = [...arr].sort((x,y)=>x-y);
-  const q = (p)=> {
-    const pos = (a.length - 1) * p;
-    const base = Math.floor(pos), rest = pos - base;
-    if (a[base+1] !== undefined) return a[base] + rest*(a[base+1]-a[base]);
-    return a[base];
-  };
+  const a=[...arr].sort((x,y)=>x-y); const q=(p)=>{ const pos=(a.length-1)*p; const base=Math.floor(pos), rest=pos-base; return a[base+1]!==undefined? a[base]+rest*(a[base+1]-a[base]) : a[base]; };
   return {min:a[0], q1:q(0.25), median:q(0.5), q3:q(0.75), max:a[a.length-1]};
 }
 function pruneByWindow(seconds) {
@@ -226,8 +215,6 @@ function pruneByWindow(seconds) {
   const cutoff = latestTs - seconds*1000;
   const startLen = buf.length;
   while (buf.length && buf[0].ts < cutoff) buf.shift();
-  // shift peak indices accordingly
-  const shift = startLen - buf.length;
   const firstIdx = buf.length ? buf[0].idx : 0;
   rollPeaks = rollPeaks.filter(i => i >= firstIdx);
   pitchPeaks = pitchPeaks.filter(i => i >= firstIdx);
@@ -248,26 +235,15 @@ function detectPeaks(values, timestamps, kMAD, minDistSec, srHz) {
 }
 function estimateSampleRate(tsArr) {
   if (tsArr.length < 4) return null;
-  const dt = [];
-  for (let i=1;i<tsArr.length;i++) {
-    const d = (tsArr[i] - tsArr[i-1]) / 1000.0;
-    if (d>0 && d<5) dt.push(d);
-  }
+  const dt=[]; for (let i=1;i<tsArr.length;i++){ const d=(tsArr[i]-tsArr[i-1])/1000.0; if (d>0 && d<5) dt.push(d); }
   if (!dt.length) return null;
-  const medDt = median(dt);
-  const hz = 1.0 / medDt;
-  return hz;
+  const medDt = median(dt); return 1.0/medDt;
 }
 function peakFreq(peaks, tsArr) {
   if (peaks.length < 2) return null;
-  const periods = [];
-  for (let i=1;i<peaks.length;i++) {
-    const t = (tsArr[peaks[i]] - tsArr[peaks[i-1]]) / 1000.0;
-    if (t>0 && t<30) periods.push(t);
-  }
+  const periods=[]; for (let i=1;i<peaks.length;i++){ const t=(tsArr[peaks[i]]-tsArr[peaks[i-1]])/1000.0; if (t>0 && t<30) periods.push(t); }
   if (!periods.length) return null;
-  const p = median(periods);
-  return 1.0 / p;
+  const p = median(periods); return 1.0/p;
 }
 
 // ====== Charts ======
@@ -306,14 +282,9 @@ function updateCharts() {
   const pitch = buf.map(p => p.pitch);
   const ts = buf.map(p => p.ts);
 
-  // Sample rate
   const estHz = estimateSampleRate(ts);
-  if (estHz) {
-    srEWMA = srEWMA === null ? estHz : (0.8*srEWMA + 0.2*estHz);
-    $("sr").textContent = srEWMA.toFixed(2) + " Hz";
-  }
+  if (estHz) { srEWMA = srEWMA === null ? estHz : (0.8*srEWMA + 0.2*estHz); $("sr").textContent = srEWMA.toFixed(2) + " Hz"; }
 
-  // Peaks
   const kMAD = parseFloat($("sens").value);
   const minDistSec = parseFloat($("minDist").value);
   const rollIdx = detectPeaks(roll, ts, kMAD, minDistSec, srEWMA);
@@ -324,7 +295,6 @@ function updateCharts() {
   const rollPeakPts = rollIdx.map(i => ({x: buf[i].idx, y: roll[i]}));
   const pitchPeakPts= pitchIdx.map(i => ({x: buf[i].idx, y: pitch[i]}));
 
-  // Update TS chart
   tsChart.data.labels = labels;
   tsChart.data.datasets[0].data = roll;
   tsChart.data.datasets[1].data = pitch;
@@ -332,15 +302,14 @@ function updateCharts() {
   tsChart.data.datasets[3].data = pitchPeakPts;
   tsChart.update("none");
 
-  // Boxplots
   const rQ = quantiles(roll);
   const pQ = quantiles(pitch);
   boxChart.data.datasets[0].data = [rQ, pQ];
   boxChart.update("none");
 
-  // KPIs
-  $("fr").textContent = (peakFreq(rollIdx, ts) ?? 0).toFixed(2);
-  $("fp").textContent = (peakFreq(pitchIdx, ts) ?? 0).toFixed(2);
+  const fr = peakFreq(rollIdx, ts), fp = peakFreq(pitchIdx, ts);
+  $("fr").textContent = (fr ?? 0).toFixed(2);
+  $("fp").textContent = (fp ?? 0).toFixed(2);
   $("rmed").textContent = isFinite(rQ.median) ? rQ.median.toFixed(2) : "—";
   $("pmed").textContent = isFinite(pQ.median) ? pQ.median.toFixed(2) : "—";
   $("wsize").textContent = buf.length + " samples";
@@ -368,30 +337,40 @@ function connect(){
   client.on("error", () => setStatus("error", false));
   client.on("message", (topic, payload) => {
     try {
-      const d = JSON.parse(new TextDecoder().decode(payload));
+      const txt = new TextDecoder().decode(payload);
+      $("raw").textContent = txt.slice(0, 500); // show first 500 chars for debugging
+
+      let d = null;
+      try { d = JSON.parse(txt); }
+      catch (e) {
+        // Non-JSON payload received. Ignore but show on screen.
+        $("last").textContent = "non-JSON payload on topic: " + topic;
+        return;
+      }
+
       let r = d.roll_deg, p = d.pitch_deg;
-      if ((r === undefined || p === undefined) && d.ax !== undefined) {
+      if ((r === undefined || p === undefined) && d.ax !== undefined && d.ay !== undefined && d.az !== undefined) {
         const k = 180 / Math.PI;
         r = Math.atan2(d.ay, d.az) * k;
         p = Math.atan2(-d.ax, Math.sqrt(d.ay*d.ay + d.az*d.az)) * k;
       }
       if (typeof r === "number" && typeof p === "number") {
-        // Sample index & window pruning
         const ts = (typeof d.ts_ms === "number") ? d.ts_ms : Date.now();
         buf.push({ idx: idx++, ts, roll: r, pitch: p });
         pruneByWindow(parseInt($("winSec").value,10) || 120);
         updateCharts();
         $("last").textContent = `seq=${d.seq ?? "?"}  roll=${r.toFixed(2)}°  pitch=${p.toFixed(2)}°`;
+      } else {
+        $("last").textContent = "JSON payload missing roll/pitch (or ax/ay/az).";
       }
-    } catch(e) { $("last").textContent = "parse error"; }
+    } catch(e) {
+      $("last").textContent = "unexpected error in message handler";
+      console.error(e);
+    }
   });
 }
 
-function disconnect(){
-  if (client) { try { client.end(true); } catch(e){} client = null; }
-  setStatus("disconnected");
-}
-
+function disconnect(){ if (client) { try { client.end(true); } catch(e){} client = null; } setStatus("disconnected"); }
 function clearBuffers(clearChartsToo=false){
   buf.length=0; idx=0; rollPeaks.length=0; pitchPeaks.length=0; srEWMA=null;
   if (clearChartsToo && tsChart && boxChart) {
