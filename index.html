@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>TrollSports Live v1.3.0 (2025-08-25)</title>
+<title>TrollSports Live v1.4.0 (2025-08-25)</title>
 <meta name="theme-color" content="#0b1220"/>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-BB3hGbN5SxbF2VYw2s8m2GQbJ8ywG3QnBk9jHPL3yyw=" crossorigin=""/>
 <style>
   :root{--bg:#0b1220;--card:#0f1a31;--muted:#92a1bd;--text:#e6eefc;--accent:#4cc9f0;--border:#223050;--rec:#ff4d4d}
   *{box-sizing:border-box} html,body{height:100%}
@@ -21,7 +22,7 @@
   .grow{flex:1 1 560px}.half{flex:1 1 320px;min-width:300px}
   .small{font-size:12px;color:var(--muted)} .tiny{font-size:11px;color:var(--muted)} .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
   .num{font-weight:700;font-size:clamp(22px,5.8vw,34px);line-height:1.15}
-  .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px} button{padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:#152341;color:var(--text);cursor:pointer}
+  .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px} button{padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:#152341;color:#fff;cursor:pointer}
   input,select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0e1730;color:var(--text)}
   label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.hidden{display:none}.ok{color:#6bd66b}.bad{color:#ff6b6b}
@@ -34,14 +35,17 @@
   .unitNow,.unitStats{border-radius:10px;padding:10px;border:1px solid var(--border);background:#0e1730}
   .unitTag{display:inline-block;padding:2px 8px;border-radius:999px;font-weight:700;margin-bottom:6px;color:#000}
   .uNums .num{color:var(--ucolor)}
+  #map{height:40vh;min-height:260px;border-radius:12px;overflow:hidden}
+  .leaflet-container{background:#0b1220}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-o9N1j7kGStGDaZp6G3l3aQzuo2a9gqX+YyxBfWYBE9I=" crossorigin=""></script>
 </head>
 <body>
   <div class="topbar">
     <div class="app-title">TrollSports Live</div><div class="spacer"></div>
-    <div class="ver">v1.3.0 (2025-08-25)</div>
+    <div class="ver">v1.4.0 (2025-08-25)</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -77,9 +81,9 @@
       </div>
       <div class="row">
         <div class="card grow">
-          <div style="font-weight:700;margin-bottom:8px;">GNSS Track (lon vs lat)</div>
-          <div class="plot" style="height:40vh;min-height:260px;"><canvas id="chart_gnss"></canvas></div>
-          <div class="small" id="gnssInfo" style="margin-top:6px;"></div>
+          <div style="font-weight:700;margin-bottom:8px;">GNSS Map</div>
+          <div id="map"></div>
+          <div class="small" style="margin-top:6px;">Basemap © OpenStreetMap, © CARTO — Dark Matter</div>
         </div>
       </div>
     </section>
@@ -159,8 +163,8 @@
   </div>
 
 <script>
-const APP_VERSION="v1.3.0 (2025-08-25)";
-const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9"; // replace via encrypt.html
+const APP_VERSION="v1.4.0 (2025-08-25)";
+const ENCRYPTED_CREDS="PASTE_CIPHERTEXT_HERE"; // replace via encrypt.html
 const $=id=>document.getElementById(id);
 
 // utils
@@ -177,12 +181,13 @@ Chart.defaults.color='#dfe7ff'; Chart.defaults.borderColor='#2a385a';
 
 // state
 let client=null, unlocked=false, viewer={user:null,pass:null};
-let chartTS=null, chartGNSS=null;
+let chartTS=null;
+let map=null, mapInited=false, firstMapFixDone=false;
 let globalT0=null;             // first arrival time seen
 let syncLastMs=null;           // last ref-arrival plotted
 const COLORS=["#4cc9f0","#ffd166","#ef476f","#06d6a0"];
 const units={}; const discoveredOrder=[];
-const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000, GNSS_KEEP=4000; // keep ~4000 dots per unit
+const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000, GNSS_KEEP=4000; // keep ~4000 pts per unit
 
 let syncRefMode='auto';
 const syncRefSelect=$('syncRef');
@@ -197,33 +202,31 @@ const nowUnits=$('nowUnits'), statsUnits=$('statsUnits'), unitsList=$('unitsList
 
 // ----- charts -----
 function makeTimeseries(){
-  const ctx=$('chart_ts').getContext('2d');
+  const ctx=document.getElementById('chart_ts').getContext('2d');
   return new Chart(ctx,{type:'line',data:{datasets:[]},options:{
     animation:false,responsive:true,maintainAspectRatio:false,
     scales:{x:{type:'linear',title:{display:true,text:'time (s from start)'},ticks:{callback:v=>Number(v).toFixed(1)}},y:{title:{display:true,text:'degrees'}}},
     plugins:{legend:{position:'bottom'}}
   }});
 }
-function makeGnss(){
-  const ctx=$('chart_gnss').getContext('2d');
-  return new Chart(ctx,{type:'scatter',data:{datasets:[]},options:{
-    animation:false,responsive:true,maintainAspectRatio:false,
-    scales:{x:{title:{display:true,text:'longitude'},ticks:{callback:v=>Number(v).toFixed(5)}},
-            y:{title:{display:true,text:'latitude'},ticks:{callback:v=>Number(v).toFixed(5)}}},
-    plugins:{legend:{position:'bottom'}}
-  }});
+
+// ----- map -----
+function makeMap(){
+  map = L.map('map',{zoomControl:true});
+  // Dark Matter basemap
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+    subdomains:'abcd', maxZoom:20
+  }).addTo(map);
+  map.setView([0,0], 2);
+  mapInited=true;
 }
-function updateGnssAxes(){
-  let xmin=+Infinity,xmax=-Infinity,ymin=+Infinity,ymax=-Infinity,have=false;
-  for(const id of Object.keys(units)){
-    const u=units[id]; if(!u.visible) continue;
-    for(const p of u.gnssPts){ if(Number.isFinite(p.x)&&Number.isFinite(p.y)){have=true;xmin=Math.min(xmin,p.x);xmax=Math.max(xmax,p.x);ymin=Math.min(ymin,p.y);ymax=Math.max(ymax,p.y);} }
+
+function fitMapIfFirst(lat,lon){
+  if(!firstMapFixDone){
+    map.setView([lat,lon], 15);
+    firstMapFixDone=true;
   }
-  if(!have){ chartGNSS.options.scales.x.min=undefined; chartGNSS.options.scales.x.max=undefined; chartGNSS.options.scales.y.min=undefined; chartGNSS.options.scales.y.max=undefined; chartGNSS.update('none'); return; }
-  const padX=(xmax-xmin)||0.0005, padY=(ymax-ymin)||0.0005;
-  chartGNSS.options.scales.x.min=xmin-padX*0.1; chartGNSS.options.scales.x.max=xmax+padX*0.1;
-  chartGNSS.options.scales.y.min=ymin-padY*0.1; chartGNSS.options.scales.y.max=ymax+padY*0.1;
-  chartGNSS.update('none');
 }
 
 // ----- unit mgmt -----
@@ -240,9 +243,12 @@ function ensureUnit(unitId){
     seriesRoll:[], seriesPitch:[],
     // peaks (from raw IMU)
     seriesRollPk:[], seriesPitchPk:[],
-    // GNSS
-    gnssPts:[], // array of {x: lon, y: lat}
-    idxRoll:null, idxPitch:null, idxRollPk:null, idxPitchPk:null, idxGnss:null,
+    // GNSS path
+    gnssLatLngs:[],
+    // datasets idx
+    idxRoll:null, idxPitch:null, idxRollPk:null, idxPitchPk:null,
+    // map layers
+    poly:null, marker:null,
     nowElems:{}, statsElems:{},
     lastRollHz:NaN,lastRollAt:0,lastPitchHz:NaN,lastPitchAt:0
   };
@@ -259,9 +265,11 @@ function ensureUnit(unitId){
   chartTS.data.datasets.push(rollPk); u.idxRollPk=chartTS.data.datasets.length-1;
   chartTS.data.datasets.push(pitchPk); u.idxPitchPk=chartTS.data.datasets.length-1;
 
-  // GNSS dataset (scatter)
-  const gnssDs={label:`${unitId} GNSS`,type:'scatter',data:u.gnssPts,parsing:false,showLine:false,pointRadius:2,backgroundColor:color,borderColor:color};
-  chartGNSS.data.datasets.push(gnssDs); u.idxGnss=chartGNSS.data.datasets.length-1;
+  // Map layers
+  u.poly = L.polyline([], {color, weight:3, opacity:0.95}).addTo(map);
+  u.marker = L.circleMarker([0,0], {radius:6, color, fillColor:color, fillOpacity:1}).addTo(map);
+  // Hide layers until we have a fix
+  u.poly.setStyle({opacity:0}); u.marker.setStyle({opacity:0, fillOpacity:0});
 
   // Now card
   const nowCard=document.createElement('div'); nowCard.className='unitNow uNums'; nowCard.style.setProperty('--ucolor',color);
@@ -296,7 +304,7 @@ function ensureUnit(unitId){
     rHz:$(`st-roll-hz-${unitId}`), pHz:$(`st-pitch-hz-${unitId}`)
   };
 
-  // Settings checkbox
+  // Settings checkbox (also controls map layers)
   const row=document.createElement('div');
   row.innerHTML=`<label style="display:flex;gap:8px;align-items:center">
     <input type="checkbox" id="chk-${unitId}" checked/>
@@ -306,14 +314,22 @@ function ensureUnit(unitId){
   row.querySelector('input').addEventListener('change',(e)=>{
     u.visible=e.target.checked;
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=!u.visible);
-    chartGNSS.data.datasets[u.idxGnss].hidden = !u.visible;
-    nowCard.style.display=u.visible?'':'none';
-    statsCol.style.display=u.visible?'':'none';
-    chartTS.update('none'); chartGNSS.update('none');
+    if(u.visible){
+      if(!map.hasLayer(u.poly)) u.poly.addTo(map);
+      if(!map.hasLayer(u.marker)) u.marker.addTo(map);
+      // Restore opacity if we have points
+      const hasFix = u.gnssLatLngs.length>0;
+      u.poly.setStyle({opacity: hasFix?0.95:0});
+      u.marker.setStyle({opacity: hasFix?1:0, fillOpacity: hasFix?1:0});
+    }else{
+      if(map.hasLayer(u.poly)) map.removeLayer(u.poly);
+      if(map.hasLayer(u.marker)) map.removeLayer(u.marker);
+    }
+    chartTS.update('none');
   });
 
   if(getRefUnit()===unitId && globalT0===null) resetSyncSeries();
-  chartTS.update('none'); chartGNSS.update('none');
+  chartTS.update('none');
   return u;
 }
 
@@ -368,7 +384,7 @@ function pruneOld(nowMs){
     while(u.times.length && u.times[0]<nowMs-keepMs){u.times.shift();u.roll.shift();u.pitch.shift();}
     while(u.seriesRoll.length && (globalT0 + u.seriesRoll[0].x*1000) < nowMs-keepMs){u.seriesRoll.shift();u.seriesPitch.shift();}
     // gnss cap by count
-    while(u.gnssPts.length>GNSS_KEEP){u.gnssPts.shift();}
+    while(u.gnssLatLngs.length>GNSS_KEEP){u.gnssLatLngs.shift();}
   }
 }
 
@@ -484,33 +500,34 @@ function stopRec(){
 
 // Tabs
 document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
-  const name=b.dataset.tab; ['plot','stats','settings'].forEach(t=>$('tab-'+t).classList.add('hidden')); $('tab-'+name).classList.remove('hidden');
+  const name=b.dataset.tab; ['plot','stats','settings'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
+  document.getElementById('tab-'+name).classList.remove('hidden');
   document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
 }));
 
 // Unlock & connect
-$('btnUnlock').addEventListener('click',async ()=>{
-  const pwd=$('pw').value; if(!pwd){$('unlockMsg').textContent='Enter a password.';return;}
-  if(!ENCRYPTED_CREDS||ENCRYPTED_CREDS==='PASTE_CIPHERTEXT_HERE'){ $('unlockMsg').textContent='No encrypted creds embedded.'; return; }
+document.getElementById('btnUnlock').addEventListener('click',async ()=>{
+  const pwd=document.getElementById('pw').value; if(!pwd){document.getElementById('unlockMsg').textContent='Enter a password.';return;}
+  if(!ENCRYPTED_CREDS||ENCRYPTED_CREDS==='PASTE_CIPHERTEXT_HERE'){ document.getElementById('unlockMsg').textContent='No encrypted creds embedded.'; return; }
   try{
     const creds=await decryptCreds(pwd,ENCRYPTED_CREDS);
     viewer.user=creds.user; viewer.pass=creds.pass; unlocked=true;
-    $('gate').classList.add('hidden'); $('app').classList.remove('hidden');
-    $('cid').value='web-'+Math.random().toString(16).slice(2,10);
-    chartTS=makeTimeseries(); chartGNSS=makeGnss();
+    document.getElementById('gate').classList.add('hidden'); document.getElementById('app').classList.remove('hidden');
+    document.getElementById('cid').value='web-'+Math.random().toString(16).slice(2,10);
+    chartTS=makeTimeseries(); makeMap();
     setStatus('unlocked — not connected',false);
-    applyWindow($('winSec').value); applyViewWindow($('viewSec').value);
+    applyWindow(document.getElementById('winSec').value); applyViewWindow(document.getElementById('viewSec').value);
     syncRefSelect.addEventListener('change', e=>setSyncRefMode(e.target.value));
-    if($('autoconn').checked) connect();
-  }catch(e){ $('unlockMsg').textContent='Wrong password or corrupted ciphertext.'; }
+    if(document.getElementById('autoconn').checked) connect();
+  }catch(e){ document.getElementById('unlockMsg').textContent='Wrong password or corrupted ciphertext.'; }
 });
 
 function connect(){
   if(!unlocked) return;
   if(client){ try{client.end(true);}catch(e){} client=null; }
-  const host=$('host').value.trim(), port=$('port').value.trim(), path=$('path').value.trim()||'/mqtt';
-  const topic=$('topic').value.trim(), cid=$('cid').value||('web-'+Math.random().toString(16).slice(2,10));
-  $('cid').value=cid; const url=`wss://${host}:${port}${path}`; $('url').textContent=url;
+  const host=document.getElementById('host').value.trim(), port=document.getElementById('port').value.trim(), path=document.getElementById('path').value.trim()||'/mqtt';
+  const topic=document.getElementById('topic').value.trim(), cid=document.getElementById('cid').value||('web-'+Math.random().toString(16).slice(2,10));
+  document.getElementById('cid').value=cid; const url=`wss://${host}:${port}${path}`; document.getElementById('url').textContent=url;
 
   client=mqtt.connect(url,{protocolVersion:4,clean:true,connectTimeout:8000,username:viewer.user,password:viewer.pass,clientId:cid,keepalive:30,resubscribe:true});
   client.on('connect',()=>{setStatus('connected',true);client.subscribe(topic,{qos:0});log('connected & subscribed: '+topic);});
@@ -544,11 +561,18 @@ function connect(){
       // GNSS fields (optional)
       const lat = (d.lat===null||d.lat===undefined)? null : Number(d.lat);
       const lon = (d.lon===null||d.lon===undefined)? null : Number(d.lon);
-      if(Number.isFinite(lat) && Number.isFinite(lon)){
-        u.gnssPts.push({x:lon,y:lat});
-        if(u.gnssPts.length>GNSS_KEEP) u.gnssPts.shift();
+      const hasFix = Number.isFinite(lat) && Number.isFinite(lon);
+      if(hasFix){
+        // append & trim
+        u.gnssLatLngs.push([lat,lon]);
+        if(u.gnssLatLngs.length>GNSS_KEEP) u.gnssLatLngs.shift();
+        // show on map
+        u.poly.setLatLngs(u.gnssLatLngs);
+        u.poly.setStyle({opacity: u.visible?0.95:0});
+        u.marker.setLatLng([lat,lon]);
+        u.marker.setStyle({opacity: u.visible?1:0, fillOpacity: u.visible?1:0});
+        if(!firstMapFixDone) fitMapIfFirst(lat,lon);
         if(u.nowElems.ll) u.nowElems.ll.textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
-        updateGnssAxes();
       } else {
         if(u.nowElems.ll) u.nowElems.ll.textContent = '–';
       }
@@ -557,8 +581,8 @@ function connect(){
       if(recActive){
         recRows.push({
           unit, t, seq:d.seq, roll, pitch,
-          lat: (Number.isFinite(lat)?lat:undefined),
-          lon: (Number.isFinite(lon)?lon:undefined),
+          lat: (hasFix?lat:undefined),
+          lon: (hasFix?lon:undefined),
           gnss_ms: (d.gnss_ms===null||d.gnss_ms===undefined)? undefined : d.gnss_ms,
           gnss_iso: (d.gnss_iso||'')
         });
@@ -573,18 +597,18 @@ function connect(){
 }
 
 function disconnect(){ if(client){try{client.end(true);}catch(e){} client=null;} setStatus('disconnected',false); log('disconnected'); }
-$('btnConnect').addEventListener('click',connect);
-$('btnDisconnect').addEventListener('click',disconnect);
-$('btnClear').addEventListener('click',()=>{
+document.getElementById('btnConnect').addEventListener('click',connect);
+document.getElementById('btnDisconnect').addEventListener('click',disconnect);
+document.getElementById('btnClear').addEventListener('click',()=>{
   for(const id of Object.keys(units)){
     const u=units[id];
     u.times.length=0;u.roll.length=0;u.pitch.length=0;
     u.seriesRoll.length=0;u.seriesPitch.length=0;u.seriesRollPk.length=0;u.seriesPitchPk.length=0;
-    u.gnssPts.length=0;
+    u.gnssLatLngs.length=0; u.poly.setLatLngs([]); u.poly.setStyle({opacity:0}); u.marker.setStyle({opacity:0, fillOpacity:0});
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=false);
-    if(chartGNSS && u.idxGnss!=null) chartGNSS.data.datasets[u.idxGnss].hidden=false;
   }
-  globalT0=null; syncLastMs=null; chartTS.update('none'); updateAxisRange(); if(chartGNSS) {updateGnssAxes(); chartGNSS.update('none');} log('cleared');
+  globalT0=null; syncLastMs=null; chartTS.update('none'); log('cleared');
+  firstMapFixDone=false; if(mapInited) map.setView([0,0],2);
 });
 </script>
 </body>
