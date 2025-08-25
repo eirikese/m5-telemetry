@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>TrollSports Live v1.2.0 (2025-08-25)</title>
+<title>TrollSports Live v1.2.1 (2025-08-25)</title>
 <meta name="theme-color" content="#0b1220"/>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -41,7 +41,7 @@
 <body>
   <div class="topbar">
     <div class="app-title">TrollSports Live</div><div class="spacer"></div>
-    <div class="ver">v1.2.0 (2025-08-25)</div>
+    <div class="ver">v1.2.1 (2025-08-25)</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -152,11 +152,11 @@
   </div>
 
 <script>
-const APP_VERSION="v1.2.0 (2025-08-25)";
+const APP_VERSION="v1.2.1 (2025-08-25)";
 const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9"; // replace via encrypt.html
 const $=id=>document.getElementById(id);
 
-// logging & utils
+// utils
 function log(s){const el=$('log');el.textContent+=s+"\\n";el.scrollTop=el.scrollHeight}
 function setStatus(t,ok=false){$('status').textContent=t;$('status').className=ok?'ok':'bad'}
 function meanStd(a){if(!a.length)return{mean:NaN,std:NaN};const m=a.reduce((x,y)=>x+y,0)/a.length;const v=a.reduce((x,y)=>x+(y-m)*(y-m),0)/a.length;return{mean:m,std:Math.sqrt(v)}}
@@ -165,77 +165,66 @@ const b64d=b64=>Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
 async function deriveKey(pw,salt){const enc=new TextEncoder();const mat=await crypto.subtle.importKey('raw',enc.encode(pw),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:120000,hash:'SHA-256'},mat,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])}
 async function decryptCreds(pass,blob){const j=JSON.parse(atob(blob));const key=await deriveKey(pass,b64d(j.salt));const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64d(j.iv)},key,b64d(j.ct));return JSON.parse(new TextDecoder().decode(new Uint8Array(pt)))}
 
-// Chart defaults
+// chart defaults
 Chart.defaults.color='#dfe7ff'; Chart.defaults.borderColor='#2a385a';
 
 // state
 let client=null, unlocked=false, viewer={user:null,pass:null};
 let chartTS=null;
-let globalT0=null;             // first seen timestamp
-let syncLastMs=null;           // last reference time plotted
+let globalT0=null;             // first arrival time seen
+let syncLastMs=null;           // last ref-arrival plotted
 const COLORS=["#4cc9f0","#ffd166","#ef476f","#06d6a0"];
 const units={}; const discoveredOrder=[];
 const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000;
 
-let syncRefMode='auto';        // 'auto' or specific unit id
+let syncRefMode='auto';
 const syncRefSelect=$('syncRef');
-function setSyncRefMode(val){ syncRefMode=val; $('syncInfo').textContent = `Reference: ${val}`; resetSyncSeries(); }
-function getRefUnit(){
-  if(syncRefMode!=='auto' && units[syncRefMode]) return syncRefMode;
-  return discoveredOrder.length? discoveredOrder[0] : null;
-}
+function setSyncRefMode(val){ syncRefMode=val; $('syncInfo').textContent=`Reference: ${val}`; resetSyncSeries(); }
+function getRefUnit(){ if(syncRefMode!=='auto' && units[syncRefMode]) return syncRefMode; return discoveredOrder.length? discoveredOrder[0] : null; }
 
 // recording
-let recActive=false, recRows=[], recStartedAt=null, recTimer=null;
+let recActive=false, recRows=[], recStartedAt=null;
 
-// DOM sections
+// DOM
 const nowUnits=$('nowUnits'), statsUnits=$('statsUnits'), unitsList=$('unitsList');
 
 // chart
 function makeTimeseries(){
   const ctx=$('chart_ts').getContext('2d');
-  return new Chart(ctx,{
-    type:'line',
-    data:{datasets:[]},
-    options:{
-      animation:false, responsive:true, maintainAspectRatio:false,
-      scales:{
-        x:{type:'linear',title:{display:true,text:'time (s from start)'},ticks:{callback:v=>Number(v).toFixed(1)}},
-        y:{title:{display:true,text:'degrees'}}
-      },
-      plugins:{legend:{position:'bottom'}}
-    }
-  });
+  return new Chart(ctx,{type:'line',data:{datasets:[]},options:{
+    animation:false,responsive:true,maintainAspectRatio:false,
+    scales:{x:{type:'linear',title:{display:true,text:'time (s from start)'},ticks:{callback:v=>Number(v).toFixed(1)}},y:{title:{display:true,text:'degrees'}}},
+    plugins:{legend:{position:'bottom'}}
+  }});
 }
 
-// unit management
+// unit mgmt
 function ensureUnit(unitId){
   if(units[unitId]) return units[unitId];
   const color=COLORS[discoveredOrder.length%COLORS.length]; discoveredOrder.push(unitId);
-
   // add to ref selector
   const opt=document.createElement('option'); opt.value=unitId; opt.textContent=unitId; syncRefSelect.appendChild(opt);
 
   const u=units[unitId]={color,visible:true,
-    // raw buffers (all arrivals)
+    // raw arrivals
     times:[], roll:[], pitch:[],
-    // sync plot buffers (only appended at ref ticks)
+    // synced series
     seriesRoll:[], seriesPitch:[],
-    // peak markers (from raw)
+    // peaks (from raw)
     seriesRollPk:[], seriesPitchPk:[],
     idxRoll:null, idxPitch:null, idxRollPk:null, idxPitchPk:null,
     nowElems:{}, statsElems:{},
     lastRollHz:NaN,lastRollAt:0,lastPitchHz:NaN,lastPitchAt:0
   };
 
-  // datasets: lines
   const rollDs={label:`${unitId} roll`,data:u.seriesRoll,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15};
   const pitchDs={label:`${unitId} pitch`,data:u.seriesPitch,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15,borderDash:[6,4]};
   chartTS.data.datasets.push(rollDs); u.idxRoll=chartTS.data.datasets.length-1;
   chartTS.data.datasets.push(pitchDs); u.idxPitch=chartTS.data.datasets.length-1;
-  // peaks: triangles
-  const rollPk={label:`${unitId} roll peaks`,type:'scatter',data:u.seriesRollPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',showLine:false};
-  const pitchPk={label:`${unitId} pitch peaks`,type:'scatter',data:u.seriesPitchPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',rotation:3.14159,showLine:false};
+
+  // peak markers (triangles)
+  const rollPk={label:`${unitId} roll peaks`,type:'scatter',data:u.seriesRollPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',showLine:false,pointRotation:0};
+  const pitchPk={label:`${unitId} pitch peaks`,type:'scatter',data:u.seriesPitchPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',showLine:false,pointRotation:180};
   chartTS.data.datasets.push(rollPk); u.idxRollPk=chartTS.data.datasets.length-1;
   chartTS.data.datasets.push(pitchPk); u.idxPitchPk=chartTS.data.datasets.length-1;
 
@@ -286,26 +275,23 @@ function ensureUnit(unitId){
     chartTS.update('none');
   });
 
-  // if this is the first unit and ref is auto, reset sync
   if(getRefUnit()===unitId && globalT0===null) resetSyncSeries();
-
   chartTS.update('none');
   return u;
 }
 
-// nearest sample index to target time
+// nearest index in arrival-time array
 function nearestIdx(times,target){
   if(!times.length) return -1;
-  // quick from the end
+  // walk back to first >= target
   let i=times.length-1;
-  while(i>0 && times[i-1] > target) i--;
-  // i is first >= target (or 0)
-  const cand1=i, cand0=Math.max(0,i-1);
-  const d1=Math.abs(times[cand1]-target), d0=Math.abs(times[cand0]-target);
-  return (d1<=d0)? cand1 : cand0;
+  while(i>0 && times[i-1]>target) i--;
+  const c1=i, c0=Math.max(0,i-1);
+  const d1=Math.abs(times[c1]-target), d0=Math.abs(times[c0]-target);
+  return (d1<=d0)?c1:c0;
 }
 
-// peaks
+// peaks over raw arrivals
 function detectPeaks(vals,times,minDistMs,minProm){
   const n=vals.length; if(n<3) return [];
   const peaks=[]; let lastT=-1e18;
@@ -319,139 +305,114 @@ function detectPeaks(vals,times,minDistMs,minProm){
   } return peaks;
 }
 
-// windows
-const viewRange=$('viewSecRange'), viewNum=$('viewSec');
-let currentViewSec=parseInt(viewNum.value||'10',10);
-function applyViewWindow(val){ currentViewSec=Math.max(5,Math.min(600,parseInt(val||'10',10))); viewRange.value=currentViewSec; viewNum.value=currentViewSec; updateAxisRange(); }
+// windows & axes
+const viewRange=$('viewSecRange'), viewNum=$('viewSec'); let currentViewSec=parseInt(viewNum.value||'10',10);
+function applyViewWindow(val){currentViewSec=Math.max(5,Math.min(600,parseInt(val||'10',10)));viewRange.value=currentViewSec;viewNum.value=currentViewSec;updateAxisRange()}
 viewRange.addEventListener('input',e=>applyViewWindow(e.target.value)); viewNum.addEventListener('change',e=>applyViewWindow(e.target.value));
 
 const winRange=$('winSecRange'), winNum=$('winSec');
-function applyWindow(val){ const v=Math.max(5,Math.min(600,parseInt(val||'10',10))); winRange.value=v; winNum.value=v; const now=syncLastMs||Date.now(); recomputePeaksAndStatsAll(now); chartTS.update('none'); }
+function applyWindow(val){const v=Math.max(5,Math.min(600,parseInt(val||'10',10))); winRange.value=v; winNum.value=v; const now=syncLastMs||Date.now(); recomputePeaksAndStatsAll(now); chartTS.update('none');}
 winRange.addEventListener('input',e=>applyWindow(e.target.value)); winNum.addEventListener('change',e=>applyWindow(e.target.value));
 
-// axis
 function updateAxisRange(){
   if(!chartTS) return;
-  if(globalT0===null){ chartTS.options.scales.x.min=0; chartTS.options.scales.x.max=currentViewSec; chartTS.update('none'); return; }
+  if(globalT0===null){chartTS.options.scales.x.min=0;chartTS.options.scales.x.max=currentViewSec;chartTS.update('none');return;}
   const last = syncLastMs || Date.now();
-  const nowSec=(last - globalT0)/1000;
+  const nowSec=(last-globalT0)/1000;
   const xmin=Math.max(0,nowSec-currentViewSec), xmax=Math.max(currentViewSec,nowSec);
-  chartTS.options.scales.x.min=Number(xmin.toFixed(1));
-  chartTS.options.scales.x.max=Number(xmax.toFixed(1));
+  chartTS.options.scales.x.min=Number(xmin.toFixed(1)); chartTS.options.scales.x.max=Number(xmax.toFixed(1));
   chartTS.update('none');
 }
 
-// prune raw + series
+// prune old samples
 function pruneOld(nowMs){
   const keepMs=Math.max(parseFloat(winNum.value||'10')*1000,MAX_KEEP_SEC*1000);
   for(const id of Object.keys(units)){
     const u=units[id];
-    while(u.times.length && u.times[0] < nowMs-keepMs){ u.times.shift(); u.roll.shift(); u.pitch.shift(); }
-    while(u.seriesRoll.length && (globalT0 + u.seriesRoll[0].x*1000) < nowMs-keepMs){
-      u.seriesRoll.shift(); u.seriesPitch.shift();
-    }
+    while(u.times.length && u.times[0]<nowMs-keepMs){u.times.shift();u.roll.shift();u.pitch.shift();}
+    while(u.seriesRoll.length && (globalT0 + u.seriesRoll[0].x*1000) < nowMs-keepMs){u.seriesRoll.shift();u.seriesPitch.shift();}
   }
 }
 
-// recompute stats + peaks per-unit (no sync needed)
+// per-unit stats using per-unit latest arrival times
 function recomputePeaksAndStatsAll(globalNowMs){
   const winSec=parseFloat(winNum.value||'10'), minDist=parseFloat($('minDist').value||'300'), minProm=parseFloat($('minProm').value||'5.0');
-
   for(const id of Object.keys(units)){
     const u=units[id]; if(!u.times.length) continue;
-
-    const nowU = u.times[u.times.length-1];
-    const startMs = nowU - winSec*1000;
-
+    const nowU=u.times[u.times.length-1]; const startMs=nowU - winSec*1000;
     let s=0; while(s<u.times.length && u.times[s]<startMs) s++;
     const tWin=u.times.slice(s), rWin=u.roll.slice(s), pWin=u.pitch.slice(s);
 
     const rPeaks=detectPeaks(rWin,tWin,minDist,minProm);
     const pPeaks=detectPeaks(pWin,tWin,minDist,minProm);
 
-    // peak markers (use raw peak times mapped to globalT0)
+    // map peaks to plot coordinates (arrival-based)
     u.seriesRollPk.length=0; u.seriesPitchPk.length=0;
-    for(const pk of rPeaks){ u.seriesRollPk.push({x:(pk.t-globalT0)/1000,y:pk.v}); }
-    for(const pk of pPeaks){ u.seriesPitchPk.push({x:(pk.t-globalT0)/1000,y:pk.v}); }
+    for(const pk of rPeaks){u.seriesRollPk.push({x:(pk.t-globalT0)/1000,y:pk.v});}
+    for(const pk of pPeaks){u.seriesPitchPk.push({x:(pk.t-globalT0)/1000,y:pk.v});}
 
-    // frequency + hold
+    // per-unit frequencies + 2s hold
     function freq(peaks){ if(peaks.length<2) return NaN; let s=0,c=0; for(let i=1;i<peaks.length;i++){const dt=(peaks[i].t-peaks[i-1].t)/1000; if(dt>0){s+=dt;c++;}} return c?1/(s/c):NaN; }
     const fR=freq(rPeaks), fP=freq(pPeaks);
-    if(Number.isFinite(fR)){ u.lastRollHz=fR; u.lastRollAt=nowU; }
-    if(Number.isFinite(fP)){ u.lastPitchHz=fP; u.lastPitchAt=nowU; }
+    if(Number.isFinite(fR)){u.lastRollHz=fR;u.lastRollAt=nowU;}
+    if(Number.isFinite(fP)){u.lastPitchHz=fP;u.lastPitchAt=nowU;}
     const fShowR=(Number.isFinite(u.lastRollHz)&&(nowU-(u.lastRollAt||0)<FREQ_HOLD_MS))?u.lastRollHz:(Number.isFinite(fR)?fR:NaN);
     const fShowP=(Number.isFinite(u.lastPitchHz)&&(nowU-(u.lastPitchAt||0)<FREQ_HOLD_MS))?u.lastPitchHz:(Number.isFinite(fP)?fP:NaN);
 
     const rs=meanStd(rWin), ps=meanStd(pWin);
-    if(u.statsElems.rMean) u.statsElems.rMean.textContent = isFinite(rs.mean)? rs.mean.toFixed(2):'–';
-    if(u.statsElems.rStd)  u.statsElems.rStd.textContent  = isFinite(rs.std)?  rs.std.toFixed(2) :'–';
-    if(u.statsElems.pMean) u.statsElems.pMean.textContent = isFinite(ps.mean)? ps.mean.toFixed(2):'–';
-    if(u.statsElems.pStd)  u.statsElems.pStd.textContent  = isFinite(ps.std)?  ps.std.toFixed(2) :'–';
-    if(u.statsElems.rPk)   u.statsElems.rPk.textContent   = rPeaks.length;
-    if(u.statsElems.pPk)   u.statsElems.pPk.textContent   = pPeaks.length;
-    if(u.statsElems.rHz)   u.statsElems.rHz.textContent   = isFinite(fShowR)? fShowR.toFixed(2):'–';
-    if(u.statsElems.pHz)   u.statsElems.pHz.textContent   = isFinite(fShowP)? fShowP.toFixed(2):'–';
+    if(u.statsElems.rMean) u.statsElems.rMean.textContent=isFinite(rs.mean)?rs.mean.toFixed(2):'–';
+    if(u.statsElems.rStd)  u.statsElems.rStd.textContent =isFinite(rs.std)? rs.std.toFixed(2) :'–';
+    if(u.statsElems.pMean) u.statsElems.pMean.textContent=isFinite(ps.mean)?ps.mean.toFixed(2):'–';
+    if(u.statsElems.pStd)  u.statsElems.pStd.textContent =isFinite(ps.std)? rs.std.toFixed(2) :'–';
+    if(u.statsElems.rPk)   u.statsElems.rPk.textContent  =rPeaks.length;
+    if(u.statsElems.pPk)   u.statsElems.pPk.textContent  =pPeaks.length;
+    if(u.statsElems.rHz)   u.statsElems.rHz.textContent  =isFinite(fShowR)?fShowR.toFixed(2):'–';
+    if(u.statsElems.pHz)   u.statsElems.pHz.textContent  =isFinite(fShowP)?fShowP.toFixed(2):'–';
+
+    // Now card frequency (per unit)
+    const fNow = Number.isFinite(fShowR)?fShowR:(Number.isFinite(fShowP)?fShowP:NaN);
+    if(u.nowElems.hz) u.nowElems.hz.textContent = isFinite(fNow)? fNow.toFixed(2):'–';
   }
 }
 
-// ===== SYNCED PLOTTING =====
+// ===== SYNCED PLOTTING ON ARRIVAL =====
 function resetSyncSeries(){
-  // clear plotted series; keep raw buffers
   syncLastMs=null;
-  if(discoveredOrder.length && globalT0===null){
-    // set t0 to first raw timestamp we have (any unit)
-    let tfirst=null;
-    for(const id of Object.keys(units)){
-      if(units[id].times.length){ tfirst = (tfirst===null)? units[id].times[0] : Math.min(tfirst, units[id].times[0]); }
-    }
-    if(tfirst!==null) globalT0=tfirst;
-  }
-  for(const id of Object.keys(units)){
-    const u=units[id];
-    u.seriesRoll.length=0; u.seriesPitch.length=0;
-  }
-  chartTS.update('none'); updateAxisRange();
-  log(`sync reset → ref=${getRefUnit()||'none'}`);
+  // set t0 = first arrival we have
+  let tfirst=null;
+  for(const id of Object.keys(units)){ if(units[id].times.length){ tfirst = (tfirst===null)? units[id].times[0] : Math.min(tfirst, units[id].times[0]); } }
+  if(tfirst!==null) globalT0=tfirst;
+  for(const id of Object.keys(units)){ units[id].seriesRoll.length=0; units[id].seriesPitch.length=0; }
+  chartTS.update('none'); updateAxisRange(); log(`sync reset → ref=${getRefUnit()||'none'}`);
 }
 
-// Called when a reference unit sample arrives at t_ref
+// append one x for all units at a reference arrival time
 function appendSyncedPoint(t_ref){
   if(globalT0===null) globalT0=t_ref;
-  const tol = parseFloat($('syncTol').value||'120'); // ms
-  const x = (t_ref - globalT0)/1000;
+  const tol=parseFloat($('syncTol').value||'120'); // ms
+  const x=(t_ref-globalT0)/1000;
 
   for(const id of Object.keys(units)){
     const u=units[id];
-    const idx = nearestIdx(u.times, t_ref);
-    let yR=null, yP=null;
-    if(idx>=0 && Math.abs(u.times[idx]-t_ref)<=tol){
-      yR = u.roll[idx]; yP = u.pitch[idx];
-    } else {
-      // no close sample — leave gaps (Chart.js will break the line)
-      yR = null; yP = null;
-    }
-    u.seriesRoll.push({x, y:yR});
-    u.seriesPitch.push({x, y:yP});
+    const idx=nearestIdx(u.times,t_ref);
+    let yR=null,yP=null;
+    if(idx>=0 && Math.abs(u.times[idx]-t_ref)<=tol){ yR=u.roll[idx]; yP=u.pitch[idx]; }
+    u.seriesRoll.push({x,y:yR});
+    u.seriesPitch.push({x,y:yP});
   }
-  syncLastMs = t_ref;
+  syncLastMs=t_ref;
   pruneOld(t_ref);
-  recomputePeaksAndStatsAll(t_ref); // stats from raw buffers
+  recomputePeaksAndStatsAll(t_ref);
   updateAxisRange();
   chartTS.update('none');
 }
 
 // ===== Recording =====
 const btnRecord=$('btnRecord'), recInfo=$('recInfo');
-function startRecording(){
-  recActive=true; recRows=[]; recStartedAt=Date.now();
-  btnRecord.textContent="Stop & Save"; btnRecord.classList.add('recording','blink');
-  if(window._recTimer) clearInterval(window._recTimer);
-  window._recTimer=setInterval(()=>{recInfo.textContent=`Recording… ${((Date.now()-recStartedAt)/1000).toFixed(1)} s`;},200);
-  log("recording started");
-}
-function stopRecordingAndSave(){
-  recActive=false; btnRecord.textContent="Start Recording"; btnRecord.classList.remove('recording','blink');
-  if(window._recTimer){clearInterval(window._recTimer);window._recTimer=null;}
+btnRecord.addEventListener('click',()=>{ if(!recActive){ startRec(); } else { stopRec(); } });
+function startRec(){ recActive=true; recRows=[]; recStartedAt=Date.now(); btnRecord.textContent="Stop & Save"; btnRecord.classList.add('recording','blink'); if(window._rt) clearInterval(window._rt); window._rt=setInterval(()=>{recInfo.textContent=`Recording… ${((Date.now()-recStartedAt)/1000).toFixed(1)} s`;},200); log("recording started"); }
+function stopRec(){
+  recActive=false; btnRecord.textContent="Start Recording"; btnRecord.classList.remove('recording','blink'); if(window._rt){clearInterval(window._rt);window._rt=null;}
   if(!recRows.length){recInfo.textContent="No samples recorded.";log("no samples to save");return;}
   const header=['unit_id','timestamp_ms','iso_time','elapsed_s','seq','roll_deg','pitch_deg'];
   const lines=[header.join(',')];
@@ -462,7 +423,6 @@ function stopRecordingAndSave(){
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
   recInfo.textContent=`Saved ${recRows.length} samples to ${fname}`; log(`saved CSV (${recRows.length} rows)`);
 }
-btnRecord.addEventListener('click',()=>{ if(!recActive) startRecording(); else stopRecordingAndSave(); });
 
 // Tabs
 document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
@@ -492,6 +452,7 @@ function connect(){
   const host=$('host').value.trim(), port=$('port').value.trim(), path=$('path').value.trim()||'/mqtt';
   const topic=$('topic').value.trim(), cid=$('cid').value||('web-'+Math.random().toString(16).slice(2,10));
   $('cid').value=cid; const url=`wss://${host}:${port}${path}`; $('url').textContent=url;
+
   client=mqtt.connect(url,{protocolVersion:4,clean:true,connectTimeout:8000,username:viewer.user,password:viewer.pass,clientId:cid,keepalive:30,resubscribe:true});
   client.on('connect',()=>{setStatus('connected',true);client.subscribe(topic,{qos:0});log('connected & subscribed: '+topic);});
   client.on('reconnect',()=>{setStatus('reconnecting…',false);log('reconnecting');});
@@ -499,11 +460,14 @@ function connect(){
   client.on('error',e=>{setStatus('error',false);log('error: '+(e?.message||e));});
   client.on('message',(topic,payload)=>{
     try{
+      // ARRIVAL time — ignore device ts_ms completely
+      const t = Date.now();
+
+      // parse & map
       let txt; try{txt=new TextDecoder().decode(payload);}catch{txt=payload.toString?payload.toString():'';}
       const d=JSON.parse(txt);
       let unit=d.unit_id; if(!unit){const m=topic.split('/'); if(m.length>=3) unit=m[1];}
       if(!unit) unit='unknown';
-      const t = (typeof d.ts_ms==='number')? d.ts_ms : Date.now();
       if(globalT0===null) globalT0=t;
 
       const u=ensureUnit(unit);
@@ -513,15 +477,15 @@ function connect(){
       }
       if(typeof roll!=='number'||typeof pitch!=='number'){log('msg missing roll/pitch: '+txt);return;}
 
-      // append RAW sample
+      // RAW arrival-based buffers
       u.times.push(t); u.roll.push(roll); u.pitch.push(pitch);
       if(u.nowElems.roll) u.nowElems.roll.textContent=roll.toFixed(2);
       if(u.nowElems.pitch)u.nowElems.pitch.textContent=pitch.toFixed(2);
-      if(recActive) recRows.push({unit:unit, t, seq:d.seq, roll, pitch});
+      if(recActive) recRows.push({unit,t,seq:d.seq,roll,pitch});
 
-      // if this unit is the current reference -> append a synced point for all units
-      const ref = getRefUnit();
-      if(ref === unit){ appendSyncedPoint(t); }
+      // reference-driven synced plot
+      const ref=getRefUnit();
+      if(ref===unit){ appendSyncedPoint(t); }
 
     }catch(e){log('parse error: '+e);}
   });
