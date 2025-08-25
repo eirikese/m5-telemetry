@@ -1,73 +1,46 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-  <title>TrollSports Live v1.1.0 (2025-08-24)</title>
-  <meta name="theme-color" content="#0b1220"/>
-  <meta name="mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-
-  <style>
-    :root { 
-      --bg:#0b1220; --card:#0f1a31; --muted:#92a1bd; --text:#e6eefc; --accent:#4cc9f0; --border:#223050; --rec:#ff4d4d;
-    }
-    *{box-sizing:border-box}
-    html,body{height:100%}
-    body{margin:0;background:var(--bg);color:var(--text);
-      font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial,sans-serif;
-      padding-bottom:env(safe-area-inset-bottom)}
-    .topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:10px;
-      padding:calc(8px + env(safe-area-inset-top)) 12px 8px 12px;background:linear-gradient(180deg,#0a1120,#0c1526);
-      border-bottom:1px solid var(--border)}
-    .app-title{font-weight:700;letter-spacing:.2px}
-    .spacer{flex:1}
-    .ver{color:var(--muted);font-size:12px}
-    .tabs{display:flex;gap:6px}
-    .tabbtn{padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:#0f1a31;color:var(--text);cursor:pointer;font-weight:600}
-    .tabbtn.active{background:#152341;border-color:#2a3c64}
-    .wrap{padding:12px;display:flex;flex-direction:column;gap:12px}
-    .row{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch}
-    .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;box-shadow:0 1px 10px rgba(0,0,0,.2)}
-    .grow{flex:1 1 560px}
-    .half{flex:1 1 320px;min-width:300px}
-    .small{font-size:12px;color:var(--muted)}
-    .tiny{font-size:11px;color:var(--muted)}
-    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-    .num{font-weight:700;font-size:clamp(22px,5.8vw,34px);line-height:1.15}
-    .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
-    button{padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:#152341;color:var(--text);cursor:pointer}
-    input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0e1730;color:var(--text)}
-    label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
-    .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    .hidden{display:none}
-    .ok{color:#6bd66b}
-    .bad{color:#ff6b6b}
-    .log{font-size:12px;background:#0a1022;color:#b7c3ff;padding:10px;border-radius:10px;max-height:200px;overflow:auto;border:1px dashed #253356}
-    .plot{position:relative;height:45vh;min-height:280px;width:100%}
-    canvas{display:block}
-    /* Recording blink */
-    .recording{background:#4a1111;border-color:#ff7a7a;color:#fff}
-    .recording::before{content:"● ";color:var(--rec)}
-    @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,77,77,.85)}70%{box-shadow:0 0 0 12px rgba(255,77,77,0)}100%{box-shadow:0 0 0 0 rgba(255,77,77,0)}}
-    .blink{animation:pulse 1s infinite}
-    .range-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center}
-    input[type="range"]{width:100%;accent-color:var(--accent)}
-    /* Unit colored text blocks */
-    .unitNow,.unitStats{border-radius:10px;padding:10px;border:1px solid var(--border);background:#0e1730}
-    .unitTag{display:inline-block;padding:2px 8px;border-radius:999px;font-weight:700;margin-bottom:6px;color:#000}
-    .uNums .num{color:var(--ucolor)}
-  </style>
-
-  <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<title>TrollSports Live v1.1.1 (2025-08-25)</title>
+<meta name="theme-color" content="#0b1220"/>
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<style>
+  :root{--bg:#0b1220;--card:#0f1a31;--muted:#92a1bd;--text:#e6eefc;--accent:#4cc9f0;--border:#223050;--rec:#ff4d4d;}
+  *{box-sizing:border-box} html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial,sans-serif;padding-bottom:env(safe-area-inset-bottom)}
+  .topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:10px;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;background:linear-gradient(180deg,#0a1120,#0c1526);border-bottom:1px solid var(--border)}
+  .app-title{font-weight:700;letter-spacing:.2px}.spacer{flex:1}.ver{color:var(--muted);font-size:12px}
+  .tabs{display:flex;gap:6px}.tabbtn{padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:#0f1a31;color:var(--text);cursor:pointer;font-weight:600}
+  .tabbtn.active{background:#152341;border-color:#2a3c64}
+  .wrap{padding:12px;display:flex;flex-direction:column;gap:12px}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;box-shadow:0 1px 10px rgba(0,0,0,.2)}
+  .grow{flex:1 1 560px}.half{flex:1 1 320px;min-width:300px}
+  .small{font-size:12px;color:var(--muted)} .tiny{font-size:11px;color:var(--muted)} .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+  .num{font-weight:700;font-size:clamp(22px,5.8vw,34px);line-height:1.15}
+  .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px} button{padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:#152341;color:var(--text);cursor:pointer}
+  input{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0e1730;color:var(--text)} label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.hidden{display:none}.ok{color:#6bd66b}.bad{color:#ff6b6b}
+  .log{font-size:12px;background:#0a1022;color:#b7c3ff;padding:10px;border-radius:10px;max-height:200px;overflow:auto;border:1px dashed #253356}
+  .plot{position:relative;height:45vh;min-height:280px;width:100%} canvas{display:block}
+  .recording{background:#4a1111;border-color:#ff7a7a;color:#fff}.recording::before{content:"● ";color:var(--rec)}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,77,77,.85)}70%{box-shadow:0 0 0 12px rgba(255,77,77,0)}100%{box-shadow:0 0 0 0 rgba(255,77,77,0)}}
+  .blink{animation:pulse 1s infinite}
+  .range-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center} input[type="range"]{width:100%;accent-color:var(--accent)}
+  .unitNow,.unitStats{border-radius:10px;padding:10px;border:1px solid var(--border);background:#0e1730}
+  .unitTag{display:inline-block;padding:2px 8px;border-radius:999px;font-weight:700;margin-bottom:6px;color:#000}
+  .uNums .num{color:var(--ucolor)}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
 </head>
 <body>
   <div class="topbar">
-    <div class="app-title">TrollSports Live</div>
-    <div class="spacer"></div>
-    <div class="ver">v1.1.0 (2025-08-24)</div>
+    <div class="app-title">TrollSports Live</div><div class="spacer"></div>
+    <div class="ver">v1.1.1 (2025-08-25)</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -80,8 +53,7 @@
     <div class="card half">
       <div style="font-weight:700;margin-bottom:8px;">Protected dashboard</div>
       <div class="small">Enter site password to unlock. Viewer creds are decrypted in-browser (read-only).</div>
-      <label>Site password</label>
-      <input id="pw" type="password" placeholder="Enter password"/>
+      <label>Site password</label><input id="pw" type="password" placeholder="Enter password"/>
       <div class="btns"><button id="btnUnlock">Unlock</button></div>
       <div id="unlockMsg" class="small"></div>
     </div>
@@ -92,9 +64,7 @@
     <!-- PLOT TAB -->
     <section id="tab-plot">
       <div class="row">
-        <div class="card grow">
-          <div class="plot"><canvas id="chart_ts"></canvas></div>
-        </div>
+        <div class="card grow"><div class="plot"><canvas id="chart_ts"></canvas></div></div>
         <div class="card half" id="nowPanel">
           <div style="font-weight:700;margin-bottom:8px;">Now</div>
           <div class="small" id="last">—</div>
@@ -108,9 +78,7 @@
     </section>
 
     <!-- STATS TAB -->
-    <section id="tab-stats" class="hidden">
-      <div class="row" id="statsUnits" style="width:100%"></div>
-    </section>
+    <section id="tab-stats" class="hidden"><div class="row" id="statsUnits" style="width:100%"></div></section>
 
     <!-- SETTINGS TAB -->
     <section id="tab-settings" class="hidden">
@@ -160,130 +128,101 @@
 
         <div class="card half">
           <div style="font-weight:700;margin-bottom:8px;">Units</div>
-          <div id="unitsList" class="grid" style="grid-template-columns:1fr;gap:8px">
-            <!-- checkboxes inserted dynamically as units appear -->
-          </div>
+          <div id="unitsList" class="grid" style="grid-template-columns:1fr;gap:8px"></div>
         </div>
 
-        <div class="card grow">
-          <div style="font-weight:700;margin-bottom:8px;">Logs</div>
-          <pre class="log" id="log"></pre>
-        </div>
+        <div class="card grow"><div style="font-weight:700;margin-bottom:8px;">Logs</div><pre class="log" id="log"></pre></div>
       </div>
     </section>
   </div>
 
 <script>
-const APP_VERSION = "v1.1.0 (2025-08-24)";
-const ENCRYPTED_CREDS = "eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9"; // replace with encrypt.html blob
+const APP_VERSION="v1.1.1";
+const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9"; // replace via encrypt.html
+const $=id=>document.getElementById(id);
+function log(s){const el=$('log');el.textContent+=s+"\\n";el.scrollTop=el.scrollHeight}
+function setStatus(t,ok=false){$('status').textContent=t;$('status').className=ok?'ok':'bad'}
+function meanStd(a){if(!a.length)return{mean:NaN,std:NaN};const m=a.reduce((x,y)=>x+y,0)/a.length;const v=a.reduce((x,y)=>x+(y-m)*(y-m),0)/a.length;return{mean:m,std:Math.sqrt(v)}}
+function fmt2(n){return n.toString().padStart(2,'0')}
 
-// ====== utils
-const $ = id => document.getElementById(id);
-function log(s){ const el=$('log'); el.textContent += s+"\\n"; el.scrollTop = el.scrollHeight; }
-function setStatus(text, ok=false){ $('status').textContent=text; $('status').className = ok? 'ok' : 'bad'; }
-function meanStd(arr){ if(!arr.length) return {mean:NaN,std:NaN}; const m=arr.reduce((a,b)=>a+b,0)/arr.length; const v=arr.reduce((a,b)=>a+(b-m)*(b-m),0)/arr.length; return {mean:m,std:Math.sqrt(v)}; }
-function fmt2(n){ return n.toString().padStart(2,'0'); }
+// crypto
+const b64d=b64=>Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
+async function deriveKey(pw,salt){const enc=new TextEncoder();const mat=await crypto.subtle.importKey('raw',enc.encode(pw),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:120000,hash:'SHA-256'},mat,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])}
+async function decryptCreds(pass,blob){const j=JSON.parse(atob(blob));const key=await deriveKey(pass,b64d(j.salt));const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64d(j.iv)},key,b64d(j.ct));return JSON.parse(new TextDecoder().decode(new Uint8Array(pt)))}
 
-// crypto helpers
-const b64d = b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-async function deriveKey(password, salt) {
-  const enc = new TextEncoder();
-  const mat = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
-  return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:120000,hash:'SHA-256'}, mat, {name:'AES-GCM',length:256}, false, ['encrypt','decrypt']);
-}
-async function decryptCreds(pass, blobB64){
-  const j = JSON.parse(atob(blobB64));
-  const key = await deriveKey(pass, b64d(j.salt));
-  const pt = await crypto.subtle.decrypt({name:'AES-GCM', iv: b64d(j.iv)}, key, b64d(j.ct));
-  return JSON.parse(new TextDecoder().decode(new Uint8Array(pt)));
-}
+// chart defaults
+Chart.defaults.color='#dfe7ff'; Chart.defaults.borderColor='#2a385a';
 
-// ====== chart defaults
-Chart.defaults.color = '#dfe7ff';
-Chart.defaults.borderColor = '#2a385a';
-
-// ====== state (multi-unit)
-let client=null, unlocked=false, viewer={user:null, pass:null};
-let chartTS=null;
-let globalT0=null;
-const COLORS = ["#4cc9f0", "#ffd166", "#ef476f", "#06d6a0"]; // first two used
-const units = {}; // unitId -> {color, idxRoll, idxPitch, times, roll, pitch, seriesRoll, seriesPitch, visible, nowElems, statsElems}
-const discoveredOrder = []; // to assign colors deterministically
-const MAX_KEEP_SEC = 600;
+// state
+let client=null, unlocked=false, viewer={user:null,pass:null};
+let chartTS=null, globalT0=null;
+const COLORS=["#4cc9f0","#ffd166","#ef476f","#06d6a0"]; // unit palette
+const units={}; const discoveredOrder=[];
+const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000; // hold last freq for 2s to prevent flicker
 
 // recording
 let recActive=false, recRows=[], recStartedAt=null, recTimer=null;
+const btnRecord=$('btnRecord'), recInfo=$('recInfo');
 
-// ====== DOM containers
-const nowUnits = $('nowUnits');
-const statsUnits = $('statsUnits');
-const unitsList = $('unitsList');
+// DOM containers
+const nowUnits=$('nowUnits'), statsUnits=$('statsUnits'), unitsList=$('unitsList');
 
-// ====== build chart
+// build chart
 function makeTimeseries(){
-  const ctx = $('chart_ts').getContext('2d');
-  return new Chart(ctx, {
+  const ctx=$('chart_ts').getContext('2d');
+  return new Chart(ctx,{
     type:'line',
-    data:{ datasets:[] },
+    data:{datasets:[]},
     options:{
       animation:false, responsive:true, maintainAspectRatio:false,
       scales:{
-        x:{ type:'linear', title:{display:true,text:'time (s from start)'},
-            ticks:{ callback:(v)=>Number(v).toFixed(1) } },
-        y:{ title:{display:true,text:'degrees'} }
+        x:{type:'linear',title:{display:true,text:'time (s from start)'},ticks:{callback:v=>Number(v).toFixed(1)}},
+        y:{title:{display:true,text:'degrees'}}
       },
-      plugins:{ legend:{ position:'bottom' } }
+      plugins:{legend:{position:'bottom'}}
     }
   });
 }
 
-// ====== unit management
+// ensure unit entry & datasets
 function ensureUnit(unitId){
-  if (units[unitId]) return units[unitId];
-  const color = COLORS[discoveredOrder.length % COLORS.length];
-  discoveredOrder.push(unitId);
-  const u = units[unitId] = {
-    color, idxRoll:null, idxPitch:null,
-    times:[], roll:[], pitch:[], seriesRoll:[], seriesPitch:[],
-    visible:true,
-    nowElems:{}, statsElems:{}
+  if(units[unitId]) return units[unitId];
+  const color=COLORS[discoveredOrder.length%COLORS.length]; discoveredOrder.push(unitId);
+  const u=units[unitId]={color,visible:true,
+    times:[],roll:[],pitch:[],seriesRoll:[],seriesPitch:[],
+    seriesRollPk:[],seriesPitchPk:[],
+    idxRoll:null,idxPitch:null,idxRollPk:null,idxPitchPk:null,
+    nowElems:{},statsElems:{}, lastFreqHz:NaN,lastFreqAt:0
   };
 
-  // chart datasets: roll solid, pitch dotted
-  const rollDs = { label:`${unitId} roll`, data:u.seriesRoll, parsing:false,
-                   borderColor:color, backgroundColor:'transparent', pointRadius:0, borderWidth:2, tension:.15 };
-  const pitchDs= { label:`${unitId} pitch`, data:u.seriesPitch, parsing:false,
-                   borderColor:color, backgroundColor:'transparent', pointRadius:0, borderWidth:2, tension:.15,
-                   borderDash:[6,4] };
-  chartTS.data.datasets.push(rollDs); u.idxRoll = chartTS.data.datasets.length-1;
-  chartTS.data.datasets.push(pitchDs); u.idxPitch = chartTS.data.datasets.length-1;
+  // lines
+  const rollDs={label:`${unitId} roll`,data:u.seriesRoll,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15};
+  const pitchDs={label:`${unitId} pitch`,data:u.seriesPitch,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15,borderDash:[6,4]};
+  chartTS.data.datasets.push(rollDs); u.idxRoll=chartTS.data.datasets.length-1;
+  chartTS.data.datasets.push(pitchDs); u.idxPitch=chartTS.data.datasets.length-1;
 
-  // Now panel card
-  const nowCard = document.createElement('div');
-  nowCard.className='unitNow uNums';
-  nowCard.style.setProperty('--ucolor', color);
-  nowCard.innerHTML = `
-    <div class="unitTag" style="background:${color}">${unitId}</div>
+  // peak markers (triangles, same color)
+  const rollPk={label:`${unitId} roll peaks`,type:'scatter',data:u.seriesRollPk,parsing:false,
+                backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',showLine:false};
+  const pitchPk={label:`${unitId} pitch peaks`,type:'scatter',data:u.seriesPitchPk,parsing:false,
+                 backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',rotation:3.14159,showLine:false};
+  chartTS.data.datasets.push(rollPk); u.idxRollPk=chartTS.data.datasets.length-1;
+  chartTS.data.datasets.push(pitchPk); u.idxPitchPk=chartTS.data.datasets.length-1;
+
+  // Now card
+  const nowCard=document.createElement('div'); nowCard.className='unitNow uNums'; nowCard.style.setProperty('--ucolor',color);
+  nowCard.innerHTML=`<div class="unitTag" style="background:${color}">${unitId}</div>
     <div class="grid">
       <div><div class="small">Roll</div><div class="num" id="now-roll-${unitId}">–</div></div>
       <div><div class="small">Pitch</div><div class="num" id="now-pitch-${unitId}">–</div></div>
       <div><div class="small">Freq (Hz)</div><div class="num" id="now-hz-${unitId}">–</div></div>
     </div>`;
   nowUnits.appendChild(nowCard);
-  u.nowElems = {
-    roll: $(`now-roll-${unitId}`),
-    pitch:$(`now-pitch-${unitId}`),
-    hz:   $(`now-hz-${unitId}`)
-  };
+  u.nowElems={roll:$(`now-roll-${unitId}`),pitch:$(`now-pitch-${unitId}`),hz:$(`now-hz-${unitId}`)};
 
-  // Stats panel card
-  const statsCol = document.createElement('div');
-  statsCol.className='card half unitStats';
-  statsCol.style.setProperty('--ucolor', color);
-  statsCol.innerHTML = `
-    <div style="font-weight:700;margin-bottom:8px;">
-      <span class="unitTag" style="background:${color}">${unitId}</span> — window stats
-    </div>
+  // Stats card
+  const statsCol=document.createElement('div'); statsCol.className='card half unitStats'; statsCol.style.setProperty('--ucolor',color);
+  statsCol.innerHTML=`<div style="font-weight:700;margin-bottom:8px;"><span class="unitTag" style="background:${color}">${unitId}</span> — window stats</div>
     <div class="grid">
       <div><div class="small">Mean Roll</div><div class="num" id="st-roll-mean-${unitId}">–</div></div>
       <div><div class="small">Std Roll</div><div class="num" id="st-roll-std-${unitId}">–</div></div>
@@ -295,27 +234,28 @@ function ensureUnit(unitId){
       <div><div class="small">Freq Pitch (Hz)</div><div class="num" id="st-pitch-hz-${unitId}">–</div></div>
     </div>`;
   statsUnits.appendChild(statsCol);
-  u.statsElems = {
+  u.statsElems={
     rMean:$(`st-roll-mean-${unitId}`), rStd:$(`st-roll-std-${unitId}`),
     pMean:$(`st-pitch-mean-${unitId}`), pStd:$(`st-pitch-std-${unitId}`),
     rPk:$(`st-roll-pk-${unitId}`), pPk:$(`st-pitch-pk-${unitId}`),
     rHz:$(`st-roll-hz-${unitId}`), pHz:$(`st-pitch-hz-${unitId}`)
   };
 
-  // Settings: checkbox
-  const row = document.createElement('div');
-  row.innerHTML = `<label style="display:flex;gap:8px;align-items:center">
+  // Settings checkbox
+  const row=document.createElement('div');
+  row.innerHTML=`<label style="display:flex;gap:8px;align-items:center">
     <input type="checkbox" id="chk-${unitId}" checked/>
     <span class="unitTag" style="background:${color}">${unitId}</span>
-    <span class="tiny">show/hide</span>
-  </label>`;
+    <span class="tiny">show/hide</span></label>`;
   unitsList.appendChild(row);
-  row.querySelector('input').addEventListener('change', (e)=>{
-    u.visible = e.target.checked;
-    chartTS.data.datasets[u.idxRoll].hidden = !u.visible;
-    chartTS.data.datasets[u.idxPitch].hidden = !u.visible;
-    nowCard.style.display = u.visible ? '' : 'none';
-    statsCol.style.display = u.visible ? '' : 'none';
+  row.querySelector('input').addEventListener('change',(e)=>{
+    u.visible=e.target.checked;
+    chartTS.data.datasets[u.idxRoll].hidden=!u.visible;
+    chartTS.data.datasets[u.idxPitch].hidden=!u.visible;
+    chartTS.data.datasets[u.idxRollPk].hidden=!u.visible;
+    chartTS.data.datasets[u.idxPitchPk].hidden=!u.visible;
+    nowCard.style.display=u.visible?'':'none';
+    statsCol.style.display=u.visible?'':'none';
     chartTS.update('none');
   });
 
@@ -323,220 +263,186 @@ function ensureUnit(unitId){
   return u;
 }
 
-// ====== peak detection (simple)
-function detectPeaks(values, times, minDistMs, minProm){
-  const n=values.length; if(n<3) return [];
+// peak detection
+function detectPeaks(vals,times,minDistMs,minProm){
+  const n=vals.length; if(n<3) return [];
   const peaks=[]; let lastT=-1e18;
   for(let i=1;i<n-1;i++){
-    const v=values[i]; if(v<=values[i-1] || v<=values[i+1]) continue;
+    const v=vals[i]; if(v<=vals[i-1]||v<=vals[i+1]) continue;
     const w=5, i0=Math.max(0,i-w), i1=Math.min(n-1,i+w);
-    let base=values[i0]; for(let j=i0+1;j<=i1;j++) base=Math.min(base,values[j]);
-    const prom=v-base; if(prom<minProm) continue;
+    let base=vals[i0]; for(let j=i0+1;j<=i1;j++) base=Math.min(base,vals[j]);
+    if(v-base<minProm) continue;
     const t=times[i]; if(t-lastT<minDistMs) continue;
     peaks.push({t,v,i}); lastT=t;
-  }
-  return peaks;
+  } return peaks;
 }
 
-// ====== window/view controls
+// view window
 const viewRange=$('viewSecRange'), viewNum=$('viewSec'); let currentViewSec=parseInt(viewNum.value||'10',10);
-function applyViewWindow(val){
-  currentViewSec=Math.max(5,Math.min(600,parseInt(val||'10',10)));
-  viewRange.value=currentViewSec; viewNum.value=currentViewSec; updateAxisRange();
-}
+function applyViewWindow(val){currentViewSec=Math.max(5,Math.min(600,parseInt(val||'10',10)));viewRange.value=currentViewSec;viewNum.value=currentViewSec;updateAxisRange()}
+function getLatestTimestamp(){let best=null;for(const id of Object.keys(units)){const a=units[id].times;if(a.length){const t=a[a.length-1];if(best===null||t>best)best=t}}return best}
 function updateAxisRange(){
   if(!chartTS) return;
-  if(globalT0===null){ chartTS.options.scales.x.min=0; chartTS.options.scales.x.max=currentViewSec; chartTS.update('none'); return; }
-  const lastMs = getLatestTimestamp() || Date.now();
-  const nowSec = (lastMs - globalT0)/1000;
-  const xmin = Math.max(0, nowSec - currentViewSec);
-  const xmax = Math.max(currentViewSec, nowSec);
-  chartTS.options.scales.x.min = Number(xmin.toFixed(1));
-  chartTS.options.scales.x.max = Number(xmax.toFixed(1));
-  chartTS.update('none');
+  if(globalT0===null){chartTS.options.scales.x.min=0;chartTS.options.scales.x.max=currentViewSec;chartTS.update('none');return;}
+  const lastMs=getLatestTimestamp()||Date.now(), nowSec=(lastMs-globalT0)/1000;
+  const xmin=Math.max(0,nowSec-currentViewSec), xmax=Math.max(currentViewSec,nowSec);
+  chartTS.options.scales.x.min=Number(xmin.toFixed(1)); chartTS.options.scales.x.max=Number(xmax.toFixed(1)); chartTS.update('none');
 }
-viewRange.addEventListener('input', e=>applyViewWindow(e.target.value));
-viewNum.addEventListener('change', e=>applyViewWindow(e.target.value));
+viewRange.addEventListener('input',e=>applyViewWindow(e.target.value)); viewNum.addEventListener('change',e=>applyViewWindow(e.target.value));
 
+// analysis window
 const winRange=$('winSecRange'), winNum=$('winSec');
-function applyWindow(val){
-  const v=Math.max(5,Math.min(600,parseInt(val||'10',10)));
-  winRange.value=v; winNum.value=v;
-  const now=getLatestTimestamp()||Date.now();
-  recomputePeaksAndStatsAll(now);
-  chartTS.update('none');
-}
-winRange.addEventListener('input', e=>applyWindow(e.target.value));
-winNum.addEventListener('change', e=>applyWindow(e.target.value));
+function applyWindow(val){const v=Math.max(5,Math.min(600,parseInt(val||'10',10))); winRange.value=v; winNum.value=v; const now=getLatestTimestamp()||Date.now(); recomputePeaksAndStatsAll(now); chartTS.update('none');}
+winRange.addEventListener('input',e=>applyWindow(e.target.value)); winNum.addEventListener('change',e=>applyWindow(e.target.value));
 
-// ====== helpers for time & pruning
-function getLatestTimestamp(){
-  let best=null;
-  for(const id of Object.keys(units)){
-    const arr=units[id].times; if(arr.length){ const t=arr[arr.length-1]; if(best===null || t>best) best=t; }
-  }
-  return best;
-}
+// prune
 function pruneOldAll(nowMs){
-  const keepMs = Math.max(parseFloat(winNum.value||'10')*1000, MAX_KEEP_SEC*1000);
+  const keepMs=Math.max(parseFloat(winNum.value||'10')*1000,MAX_KEEP_SEC*1000);
   for(const id of Object.keys(units)){
     const u=units[id];
-    while(u.times.length && u.times[0] < nowMs - keepMs){
-      u.times.shift(); u.roll.shift(); u.pitch.shift();
-      u.seriesRoll.shift(); u.seriesPitch.shift();
+    while(u.times.length && u.times[0]<nowMs-keepMs){
+      u.times.shift();u.roll.shift();u.pitch.shift();
+      u.seriesRoll.shift();u.seriesPitch.shift();
+      // peaks will be recomputed, so no need to prune here
     }
   }
 }
 
-// ====== recompute stats (per-unit)
+// recompute stats + peaks (per-unit)
 function recomputePeaksAndStatsAll(nowMs){
   const winSec=parseFloat(winNum.value||'10'), minDist=parseFloat($('minDist').value||'300'), minProm=parseFloat($('minProm').value||'5.0');
   const startMs=nowMs - winSec*1000;
 
   for(const id of Object.keys(units)){
     const u=units[id];
-    // slice window
-    let s=0; while(s<u.times.length && u.times[s] < startMs) s++;
+    let s=0; while(s<u.times.length && u.times[s]<startMs) s++;
     const tWin=u.times.slice(s), rWin=u.roll.slice(s), pWin=u.pitch.slice(s);
 
     const rPeaks=detectPeaks(rWin,tWin,minDist,minProm);
     const pPeaks=detectPeaks(pWin,tWin,minDist,minProm);
-    // freqs
-    function freq(peaks){ if(peaks.length<2) return NaN; let sum=0,c=0; for(let i=1;i<peaks.length;i++){ const dt=(peaks[i].t - peaks[i-1].t)/1000; if(dt>0){sum+=dt;c++;}} return c?1/(sum/c):NaN; }
+
+    // map peaks to plot coordinates (seconds from globalT0)
+    u.seriesRollPk.length=0; u.seriesPitchPk.length=0;
+    for(const pk of rPeaks){u.seriesRollPk.push({x:(pk.t-globalT0)/1000,y:pk.v});}
+    for(const pk of pPeaks){u.seriesPitchPk.push({x:(pk.t-globalT0)/1000,y:pk.v});}
+
+    // frequency estimate and anti-flicker
+    function freq(peaks){ if(peaks.length<2) return NaN; let sum=0,c=0; for(let i=1;i<peaks.length;i++){const dt=(peaks[i].t-peaks[i-1].t)/1000; if(dt>0){sum+=dt;c++;}} return c?1/(sum/c):NaN;}
     const fR=freq(rPeaks), fP=freq(pPeaks);
+    let fDisp=Number.isFinite(fR)?fR:(Number.isFinite(fP)?fP:NaN);
+    if(Number.isFinite(fDisp)){ u.lastFreqHz=fDisp; u.lastFreqAt=nowMs; }
+    const fShow=(Number.isFinite(u.lastFreqHz) && (nowMs-(u.lastFreqAt||0)<FREQ_HOLD_MS)) ? u.lastFreqHz : (Number.isFinite(fDisp)?fDisp:NaN);
+
     // stats
     const rs=meanStd(rWin), ps=meanStd(pWin);
 
     // update UI
-    if(u.statsElems.rMean){ u.statsElems.rMean.textContent = isFinite(rs.mean)? rs.mean.toFixed(2) : '–'; }
-    if(u.statsElems.rStd){  u.statsElems.rStd.textContent  = isFinite(rs.std)?  rs.std.toFixed(2)  : '–'; }
-    if(u.statsElems.pMean){ u.statsElems.pMean.textContent = isFinite(ps.mean)? ps.mean.toFixed(2) : '–'; }
-    if(u.statsElems.pStd){  u.statsElems.pStd.textContent  = isFinite(ps.std)?  ps.std.toFixed(2)  : '–'; }
-    if(u.statsElems.rPk){   u.statsElems.rPk.textContent   = rPeaks.length; }
-    if(u.statsElems.pPk){   u.statsElems.pPk.textContent   = pPeaks.length; }
-    if(u.statsElems.rHz){   u.statsElems.rHz.textContent   = isFinite(fR)? fR.toFixed(2) : '–'; }
-    if(u.statsElems.pHz){   u.statsElems.pHz.textContent   = isFinite(fP)? fP.toFixed(2) : '–'; }
+    if(u.statsElems.rMean) u.statsElems.rMean.textContent = isFinite(rs.mean)? rs.mean.toFixed(2):'–';
+    if(u.statsElems.rStd)  u.statsElems.rStd.textContent  = isFinite(rs.std)?  rs.std.toFixed(2) :'–';
+    if(u.statsElems.pMean) u.statsElems.pMean.textContent = isFinite(ps.mean)? ps.mean.toFixed(2):'–';
+    if(u.statsElems.pStd)  u.statsElems.pStd.textContent  = isFinite(ps.std)?  ps.std.toFixed(2) :'–';
+    if(u.statsElems.rPk)   u.statsElems.rPk.textContent   = rPeaks.length;
+    if(u.statsElems.pPk)   u.statsElems.pPk.textContent   = pPeaks.length;
+    if(u.statsElems.rHz)   u.statsElems.rHz.textContent   = isFinite(fR)? fR.toFixed(2):'–';
+    if(u.statsElems.pHz)   u.statsElems.pHz.textContent   = isFinite(fP)? fP.toFixed(2):'–';
 
-    // Now card freq
-    if(u.nowElems.hz){ u.nowElems.hz.textContent = isFinite(fR)? fR.toFixed(2) : (isFinite(fP)? fP.toFixed(2): '–'); }
+    if(u.nowElems.hz)      u.nowElems.hz.textContent      = isFinite(fShow)? fShow.toFixed(2):'–';
   }
 }
 
-// ====== recording
-const btnRecord=$('btnRecord'), recInfo=$('recInfo');
+// recording
 function startRecording(){
   recActive=true; recRows=[]; recStartedAt=Date.now();
   btnRecord.textContent="Stop & Save"; btnRecord.classList.add('recording','blink');
   if(recTimer) clearInterval(recTimer);
-  recTimer=setInterval(()=>{ recInfo.textContent=`Recording… ${((Date.now()-recStartedAt)/1000).toFixed(1)} s`; }, 200);
+  recTimer=setInterval(()=>{recInfo.textContent=`Recording… ${((Date.now()-recStartedAt)/1000).toFixed(1)} s`;},200);
   log("recording started");
 }
 function stopRecordingAndSave(){
   recActive=false; btnRecord.textContent="Start Recording"; btnRecord.classList.remove('recording','blink');
-  if(recTimer){ clearInterval(recTimer); recTimer=null; }
-  if(!recRows.length){ recInfo.textContent="No samples recorded."; log("no samples to save"); return; }
+  if(recTimer){clearInterval(recTimer);recTimer=null;}
+  if(!recRows.length){recInfo.textContent="No samples recorded.";log("no samples to save");return;}
   const header=['unit_id','timestamp_ms','iso_time','elapsed_s','seq','roll_deg','pitch_deg'];
   const lines=[header.join(',')];
-  for(const r of recRows){
-    const iso=new Date(r.t).toISOString();
-    lines.push([r.unit, r.t, `"${iso.replace(/"/g,'""')}"`, (globalT0!==null?((r.t-globalT0)/1000).toFixed(3):''), (r.seq??''), r.roll.toFixed(6), r.pitch.toFixed(6)].join(','));
-  }
-  const csv=lines.join('\\n');
-  const blob=new Blob([csv],{type:'text/csv'});
-  const d=new Date(recStartedAt||Date.now());
+  for(const r of recRows){const iso=new Date(r.t).toISOString();lines.push([r.unit,r.t,`"${iso.replace(/"/g,'""')}"`,(globalT0!==null?((r.t-globalT0)/1000).toFixed(3):''),(r.seq??''),r.roll.toFixed(6),r.pitch.toFixed(6)].join(','));}
+  const csv=lines.join('\n'), blob=new Blob([csv],{type:'text/csv'}), d=new Date(recStartedAt||Date.now());
   const fname=`trollsports_multi_${d.getFullYear()}-${fmt2(d.getMonth()+1)}-${fmt2(d.getDate())}_${fmt2(d.getHours())}-${fmt2(d.getMinutes())}-${fmt2(d.getSeconds())}.csv`;
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=fname; document.body.appendChild(a); a.click();
-  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-  recInfo.textContent=`Saved ${recRows.length} samples to ${fname}`;
-  log(`saved CSV (${recRows.length} rows)`);
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},1000);
+  recInfo.textContent=`Saved ${recRows.length} samples to ${fname}`; log(`saved CSV (${recRows.length} rows)`);
 }
-btnRecord.addEventListener('click', ()=>{ if(!recActive) startRecording(); else stopRecordingAndSave(); });
+btnRecord.addEventListener('click',()=>{if(!recActive)startRecording();else stopRecordingAndSave();});
 
-// ====== tabs
-document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click', ()=>{
-  const name=b.dataset.tab;
-  ['plot','stats','settings'].forEach(t=>$('tab-'+t).classList.add('hidden'));
-  $('tab-'+name).classList.remove('hidden');
-  document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active', x.dataset.tab===name));
+// tabs
+document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
+  const name=b.dataset.tab; ['plot','stats','settings'].forEach(t=>$('tab-'+t).classList.add('hidden')); $('tab-'+name).classList.remove('hidden');
+  document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
 }));
 
-// ====== unlock/connect
-$('btnUnlock').addEventListener('click', async ()=>{
-  const pwd=$('pw').value;
-  if(!pwd){ $('unlockMsg').textContent='Enter a password.'; return; }
-  if(!ENCRYPTED_CREDS || ENCRYPTED_CREDS==='PASTE_CIPHERTEXT_HERE'){ $('unlockMsg').textContent='No encrypted creds embedded.'; return; }
+// unlock/connect
+$('btnUnlock').addEventListener('click',async ()=>{
+  const pwd=$('pw').value; if(!pwd){$('unlockMsg').textContent='Enter a password.';return;}
+  if(!ENCRYPTED_CREDS||ENCRYPTED_CREDS==='PASTE_CIPHERTEXT_HERE'){ $('unlockMsg').textContent='No encrypted creds embedded.'; return; }
   try{
-    const creds = await decryptCreds(pwd, ENCRYPTED_CREDS);
+    const creds=await decryptCreds(pwd,ENCRYPTED_CREDS);
     viewer.user=creds.user; viewer.pass=creds.pass; unlocked=true;
     $('gate').classList.add('hidden'); $('app').classList.remove('hidden');
     $('cid').value='web-'+Math.random().toString(16).slice(2,10);
-    chartTS = makeTimeseries();
-    setStatus('unlocked — not connected', false);
+    chartTS=makeTimeseries(); setStatus('unlocked — not connected',false);
     applyWindow($('winSec').value); applyViewWindow($('viewSec').value);
-    if ($('autoconn').checked) connect();
+    if($('autoconn').checked) connect();
   }catch(e){ $('unlockMsg').textContent='Wrong password or corrupted ciphertext.'; }
 });
 
 function connect(){
   if(!unlocked) return;
-  if(client){ try{ client.end(true);}catch(e){} client=null; }
+  if(client){ try{client.end(true);}catch(e){} client=null; }
   const host=$('host').value.trim(), port=$('port').value.trim(), path=$('path').value.trim()||'/mqtt';
-  const topic=$('topic').value.trim(), cid=$('cid').value || ('web-'+Math.random().toString(16).slice(2,10));
+  const topic=$('topic').value.trim(), cid=$('cid').value||('web-'+Math.random().toString(16).slice(2,10));
   $('cid').value=cid; const url=`wss://${host}:${port}${path}`; $('url').textContent=url;
-
-  client = mqtt.connect(url, { protocolVersion:4, clean:true, connectTimeout:8000,
-    username:viewer.user, password:viewer.pass, clientId:cid, keepalive:30, resubscribe:true });
-  client.on('connect',()=>{ setStatus('connected', true); client.subscribe(topic,{qos:0}); log('connected & subscribed: '+topic); });
-  client.on('reconnect',()=>{ setStatus('reconnecting…', false); log('reconnecting'); });
-  client.on('close',()=>{ setStatus('disconnected', false); log('closed'); });
-  client.on('error', e=>{ setStatus('error', false); log('error: '+(e?.message||e)); });
-  client.on('message', (topic, payload)=>{
+  client=mqtt.connect(url,{protocolVersion:4,clean:true,connectTimeout:8000,username:viewer.user,password:viewer.pass,clientId:cid,keepalive:30,resubscribe:true});
+  client.on('connect',()=>{setStatus('connected',true);client.subscribe(topic,{qos:0});log('connected & subscribed: '+topic);});
+  client.on('reconnect',()=>{setStatus('reconnecting…',false);log('reconnecting');});
+  client.on('close',()=>{setStatus('disconnected',false);log('closed');});
+  client.on('error',e=>{setStatus('error',false);log('error: '+(e?.message||e));});
+  client.on('message',(topic,payload)=>{
     try{
-      let txt; try{ txt=new TextDecoder().decode(payload);}catch{ txt=payload.toString?payload.toString():''; }
+      let txt; try{txt=new TextDecoder().decode(payload);}catch{txt=payload.toString?payload.toString():'';}
       const d=JSON.parse(txt);
-      // Determine unit_id: payload.unit_id preferred; else take from topic m5/<unit>/telemetry
-      let unit = d.unit_id;
-      if(!unit){
-        const m = topic.split('/');
-        if(m.length>=3) unit = m[1];
-      }
-      if(!unit){ unit='unknown'; }
-      if(globalT0===null){ globalT0 = (typeof d.ts_ms==='number')? d.ts_ms : Date.now(); }
+      let unit=d.unit_id; if(!unit){const m=topic.split('/'); if(m.length>=3) unit=m[1];}
+      if(!unit) unit='unknown';
+      if(globalT0===null) globalT0=(typeof d.ts_ms==='number')?d.ts_ms:Date.now();
 
       let roll=d.roll_deg, pitch=d.pitch_deg;
-      if((roll===undefined || pitch===undefined) && d.ax!==undefined){
-        const k=180/Math.PI; roll=Math.atan2(d.ay,d.az)*k; pitch=Math.atan2(-d.ax, Math.sqrt(d.ay*d.ay + d.az*d.az))*k;
+      if((roll===undefined||pitch===undefined)&&d.ax!==undefined){
+        const k=180/Math.PI; roll=Math.atan2(d.ay,d.az)*k; pitch=Math.atan2(-d.ax,Math.sqrt(d.ay*d.ay+d.az*d.az))*k;
       }
-      if(typeof roll!=='number' || typeof pitch!=='number'){ log('msg missing roll/pitch: '+txt); return; }
-      const t = (typeof d.ts_ms==='number')? d.ts_ms : Date.now();
+      if(typeof roll!=='number'||typeof pitch!=='number'){log('msg missing roll/pitch: '+txt);return;}
+      const t=(typeof d.ts_ms==='number')?d.ts_ms:Date.now();
 
-      const u = ensureUnit(unit);
+      const u=ensureUnit(unit);
       u.times.push(t); u.roll.push(roll); u.pitch.push(pitch);
-      u.seriesRoll.push({x:(t - globalT0)/1000, y:roll});
-      u.seriesPitch.push({x:(t - globalT0)/1000, y:pitch});
+      u.seriesRoll.push({x:(t-globalT0)/1000,y:roll});
+      u.seriesPitch.push({x:(t-globalT0)/1000,y:pitch});
 
       pruneOldAll(t);
-      $('last').textContent = `unit=${unit} seq=${d.seq ?? '?' } roll=${roll.toFixed(2)}° pitch=${pitch.toFixed(2)}°`;
-
-      // update Now numbers
-      if(u.nowElems.roll) u.nowElems.roll.textContent = roll.toFixed(2);
-      if(u.nowElems.pitch)u.nowElems.pitch.textContent= pitch.toFixed(2);
-
-      // record
-      if(recActive){ recRows.push({unit, t, seq:d.seq, roll, pitch}); }
+      $('last').textContent=`unit=${unit} seq=${d.seq??'?'} roll=${roll.toFixed(2)}° pitch=${pitch.toFixed(2)}°`;
+      if(u.nowElems.roll) u.nowElems.roll.textContent=roll.toFixed(2);
+      if(u.nowElems.pitch)u.nowElems.pitch.textContent=pitch.toFixed(2);
+      if(recActive) recRows.push({unit,t,seq:d.seq,roll,pitch});
 
       recomputePeaksAndStatsAll(t);
       updateAxisRange();
-    }catch(e){ log('parse error: '+e); }
+    }catch(e){log('parse error: '+e);}
   });
 }
-function disconnect(){ if(client){ try{ client.end(true);}catch(e){} client=null; } setStatus('disconnected', false); log('disconnected'); }
-$('btnConnect').addEventListener('click', connect);
-$('btnDisconnect').addEventListener('click', disconnect);
-$('btnClear').addEventListener('click', ()=>{
+function disconnect(){ if(client){try{client.end(true);}catch(e){} client=null;} setStatus('disconnected',false); log('disconnected'); }
+$('btnConnect').addEventListener('click',connect);
+$('btnDisconnect').addEventListener('click',disconnect);
+$('btnClear').addEventListener('click',()=>{
   for(const id of Object.keys(units)){
     const u=units[id];
-    u.times.length=0; u.roll.length=0; u.pitch.length=0; u.seriesRoll.length=0; u.seriesPitch.length=0;
+    u.times.length=0;u.roll.length=0;u.pitch.length=0;u.seriesRoll.length=0;u.seriesPitch.length=0;u.seriesRollPk.length=0;u.seriesPitchPk.length=0;
   }
   globalT0=null; chartTS.update('none'); updateAxisRange(); log('cleared');
 });
