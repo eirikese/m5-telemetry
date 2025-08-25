@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>TrollSports Live v1.5.0 (2025-08-25)</title>
+<title>TrollSports Live v1.5.1 (2025-08-25)</title>
 <meta name="theme-color" content="#0b1220"/>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -15,7 +15,7 @@
   body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial,sans-serif;padding-bottom:env(safe-area-inset-bottom)}
   .topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:10px;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;background:linear-gradient(180deg,#0a1120,#0c1526);border-bottom:1px solid var(--border)}
   .app-title{font-weight:700}.spacer{flex:1}.ver{color:var(--muted);font-size:12px}
-  .tabs{display:flex;gap:6px}.tabbtn{padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:#0f1a31;color:var(--text);cursor:pointer;font-weight:600}
+  .tabs{display:flex;gap:6px}.tabbtn{padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:#0f1a31;color:#fff;cursor:pointer;font-weight:600}
   .tabbtn.active{background:#152341;border-color:#2a3c64}
   .wrap{padding:12px;display:flex;flex-direction:column;gap:12px}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch}
   .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;box-shadow:0 1px 10px rgba(0,0,0,.2)}
@@ -45,7 +45,7 @@
 <body>
   <div class="topbar">
     <div class="app-title">TrollSports Live</div><div class="spacer"></div>
-    <div class="ver">v1.5.0 (2025-08-25)</div>
+    <div class="ver">v1.5.1 (2025-08-25)</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -121,7 +121,7 @@
         </div>
 
         <div class="card half">
-          <div style="font-weight:700;margin-bottom:8px;">Windows & Peaks</div>
+          <div style="font-weight:700;margin-bottom:8px;">Windows, Peaks & GNSS</div>
           <div class="grid">
             <div style="grid-column:1/-1;">
               <label>Timeseries View Window (seconds)</label>
@@ -139,6 +139,14 @@
             </div>
             <div><label>Min peak distance (ms)</label><input id="minDist" value="300"/></div>
             <div><label>Min prominence (deg)</label><input id="minProm" value="5.0"/></div>
+            <div style="grid-column:1/-1;">
+              <label>Velocity smoothing window (seconds)</label>
+              <div class="range-row">
+                <input id="sogWinRange" type="range" min="3" max="30" step="1" value="8"/>
+                <input id="sogWin" type="number" min="3" max="30" step="1" value="8" style="width:90px"/>
+              </div>
+              <div class="tiny">Speed is computed from a linear fit of XY position over this window (1 Hz GNSS-friendly).</div>
+            </div>
           </div>
         </div>
 
@@ -168,7 +176,7 @@
   </div>
 
 <script>
-const APP_VERSION="v1.5.0 (2025-08-25)";
+const APP_VERSION="v1.5.1 (2025-08-25)";
 const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9";
 const $=id=>document.getElementById(id);
 
@@ -196,23 +204,24 @@ function validLatLon(lat,lon){
          Number.isFinite(lat) && Number.isFinite(lon) &&
          Math.abs(lat)<=90 && Math.abs(lon)<=180;
 }
-// geo math
+
+// geo helpers
 const Rm=6371000; // meters
-function haversine(lat1,lon1,lat2,lon2){
+function projLocalMeters(lat0,lon0,lat,lon){
+  // equirectangular projection around (lat0,lon0)
   const toR=a=>a*Math.PI/180;
-  const dlat=toR(lat2-lat1), dlon=toR(lon2-lon1);
-  const a=Math.sin(dlat/2)**2 + Math.cos(toR(lat1))*Math.cos(toR(lat2))*(Math.sin(dlon/2)**2);
-  return 2*Rm*Math.asin(Math.sqrt(a));
+  const x = (toR(lon)-toR(lon0)) * Math.cos(toR(lat0)) * Rm;
+  const y = (toR(lat)-toR(lat0)) * Rm;
+  return {x,y};
 }
-function bearingDeg(lat1,lon1,lat2,lon2){
-  const toR=a=>a*Math.PI/180, toD=a=>a*180/Math.PI;
-  const phi1=toR(lat1), phi2=toR(lat2), dlam=toR(lon2-lon1);
-  const y=Math.sin(dlam)*Math.cos(phi2);
-  const x=Math.cos(phi1)*Math.sin(phi2)-Math.sin(phi1)*Math.cos(phi2)*Math.cos(dlam);
-  let brg=toD(Math.atan2(y,x));
+function bearingFromV(vx,vy){ // vx: East m/s, vy: North m/s
+  const toD=a=>a*180/Math.PI;
+  let brg = toD(Math.atan2(vx, vy)); // atan2(East, North)
   if(brg<0) brg+=360;
   return brg;
 }
+
+const KNOTS_PER_MPS=1.94384449;
 
 // chart defaults
 Chart.defaults.color='#dfe7ff'; Chart.defaults.borderColor='#2a385a';
@@ -225,7 +234,12 @@ let globalT0=null, syncLastMs=null;
 const COLORS=["#4cc9f0","#ffd166","#ef476f","#06d6a0"];
 const units={}, discoveredOrder=[];
 const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000, GNSS_KEEP=4000;
-const KNOTS_PER_MPS=1.94384449;
+
+// read smoothing window
+const sogRange=$('sogWinRange'), sogNum=$('sogWin');
+function getSogWinSec(){ return Math.max(3, Math.min(30, parseInt(sogNum.value||'8',10))); }
+sogRange.addEventListener('input',e=>{sogNum.value=e.target.value;});
+sogNum.addEventListener('change',e=>{sogRange.value=e.target.value;});
 
 // sync
 let syncRefMode='auto';
@@ -278,19 +292,20 @@ function ensureUnit(unitId){
     times:[], roll:[], pitch:[],
     // synced series for plot
     seriesRoll:[], seriesPitch:[],
-    // peak markers (style: circles)
+    // peak markers (small circles)
     seriesRollPk:[], seriesPitchPk:[],
-    // GNSS path + smoothing state
+    // GNSS
     gnssLatLngs:[],
-    posEMA:null, prevPosEMA:null, prevPosTime:null, sogEMA:null, heading:null,
-    // SOG series
+    lat0:null, lon0:null, posBuf:[], // {t,lat,lon,x,y}
+    // SOG/heading
+    sogEMA:null, heading:null,
     sogTimes:[], sogVals:[], sogSeries:[],
     // dataset idx
     idxRoll:null, idxPitch:null, idxRollPk:null, idxPitchPk:null,
     idxSOG:null,
     // map layers
     poly:null, marker:null,
-    // now & stats els
+    // UI elements
     nowElems:{}, statsElems:{},
     // freq memory
     lastRollHz:NaN,lastRollAt:0,lastPitchHz:NaN,lastPitchAt:0
@@ -317,7 +332,7 @@ function ensureUnit(unitId){
   u.marker = L.circleMarker([0,0], {radius:6, color, fillColor:color, fillOpacity:1}).addTo(map);
   u.poly.setStyle({opacity:0}); u.marker.setStyle({opacity:0, fillOpacity:0});
 
-  // Now card
+  // Now card (adds SOG mean + heading)
   const nowCard=document.createElement('div'); nowCard.className='unitNow uNums'; nowCard.style.setProperty('--ucolor',color);
   nowCard.innerHTML=`<div class="unitTag" style="background:${color}">${unitId}</div>
     <div class="grid">
@@ -331,13 +346,8 @@ function ensureUnit(unitId){
     </div>`;
   nowUnits.appendChild(nowCard);
   u.nowElems={
-    roll:$(`now-roll-${unitId}`),
-    pitch:$(`now-pitch-${unitId}`),
-    hz:$(`now-hz-${unitId}`),
-    sog:$(`now-sog-${unitId}`),
-    sogMean:$(`now-sogmean-${unitId}`),
-    hdg:$(`now-hdg-${unitId}`),
-    ll:$(`now-ll-${unitId}`)
+    roll:$(`now-roll-${unitId}`), pitch:$(`now-pitch-${unitId}`), hz:$(`now-hz-${unitId}`),
+    sog:$(`now-sog-${unitId}`), sogMean:$(`now-sogmean-${unitId}`), hdg:$(`now-hdg-${unitId}`), ll:$(`now-ll-${unitId}`)
   };
 
   // Stats card (add Mean SOG)
@@ -363,7 +373,7 @@ function ensureUnit(unitId){
     sogMean:$(`st-sog-mean-${unitId}`)
   };
 
-  // settings checkbox controls all datasets + map
+  // settings checkbox
   const row=document.createElement('div');
   row.innerHTML=`<label style="display:flex;gap:8px;align-items:center">
     <input type="checkbox" id="chk-${unitId}" checked/>
@@ -422,7 +432,7 @@ function applyViewWindow(val){currentViewSec=Math.max(5,Math.min(600,parseInt(va
 viewRange.addEventListener('input',e=>applyViewWindow(e.target.value)); viewNum.addEventListener('change',e=>applyViewWindow(e.target.value));
 
 const winRange=$('winSecRange'), winNum=$('winSec');
-function applyWindow(val){const v=Math.max(5,Math.min(600,parseInt(val||'10',10))); winRange.value=v; winNum.value=v; const now=syncLastMs||Date.now(); recomputePeaksAndStatsAll(now); chartTS.update('none'); chartSOG.update('none');}
+function applyWindow(val){const v=Math.max(5,Math.min(600,parseInt(val||'10',10))); winRange.value=v; winNum.value=v; const now=syncLastMs||Date.now(); recomputePeaksAndStatsAll(); chartTS.update('none'); chartSOG.update('none');}
 winRange.addEventListener('input',e=>applyWindow(e.target.value)); winNum.addEventListener('change',e=>applyWindow(e.target.value));
 
 function updateAxisRange(){
@@ -441,13 +451,12 @@ function pruneOld(nowMs){
   const keepMs=Math.max(parseFloat(winNum.value||'10')*1000,MAX_KEEP_SEC*1000);
   for(const id of Object.keys(units)){
     const u=units[id];
-    // raw roll/pitch arrivals
     while(u.times.length && u.times[0]<nowMs-keepMs){u.times.shift();u.roll.shift();u.pitch.shift();}
-    // plotted series (roll/pitch)
     while(u.seriesRoll.length && (globalT0 + u.seriesRoll[0].x*1000) < nowMs-keepMs){u.seriesRoll.shift();u.seriesPitch.shift();}
-    // GNSS path length cap
     while(u.gnssLatLngs.length>GNSS_KEEP){u.gnssLatLngs.shift(); if(u.poly) u.poly.setLatLngs(u.gnssLatLngs);}
-    // SOG
+    // prune regression buffer
+    while(u.posBuf.length && u.posBuf[0].t < nowMs - getSogWinSec()*1000){u.posBuf.shift();}
+    // SOG series
     while(u.sogTimes.length && u.sogTimes[0]<nowMs-keepMs){u.sogTimes.shift();u.sogVals.shift();}
     while(u.sogSeries.length && (globalT0 + u.sogSeries[0].x*1000) < nowMs-keepMs){u.sogSeries.shift();}
   }
@@ -486,14 +495,13 @@ function recomputePeaksAndStatsAll(){
     if(u.statsElems.rHz)   u.statsElems.rHz.textContent  =isFinite(fShowR)?fShowR.toFixed(2):'–';
     if(u.statsElems.pHz)   u.statsElems.pHz.textContent  =isFinite(fShowP)?fShowP.toFixed(2):'–';
 
-    // Mean SOG over window (arrival-time)
+    // Mean SOG (window)
     let sIdx=0; while(sIdx<u.sogTimes.length && u.sogTimes[sIdx]<startMs) sIdx++;
     const sogWin=u.sogVals.slice(sIdx);
     const sogStats=meanStd(sogWin);
     if(u.statsElems.sogMean) u.statsElems.sogMean.textContent=isFinite(sogStats.mean)?sogStats.mean.toFixed(2):'–';
     if(u.nowElems.sogMean)   u.nowElems.sogMean.textContent  =isFinite(sogStats.mean)?sogStats.mean.toFixed(2):'–';
 
-    // Show Hz in Now tile (same logic as before)
     const fNow = Number.isFinite(fShowR)?fShowR:(Number.isFinite(fShowP)?fShowP:NaN);
     if(u.nowElems.hz) u.nowElems.hz.textContent = isFinite(fNow)? fNow.toFixed(2):'–';
   }
@@ -536,46 +544,46 @@ function appendSyncedPoint(t_ref){
   pruneOld(t_ref);
   recomputePeaksAndStatsAll();
   updateAxisRange();
-  chartTS.update('none');
-  chartSOG.update('none');
+  chartTS.update('none'); chartSOG.update('none');
 }
 
-// ---- SOG/heading update from GNSS (EMA smoothing) ----
-function updateSOGandHeading(u, t, lat, lon){
-  const alphaPos=0.25;          // EMA on position
-  const alphaSOG=0.3;           // EMA on speed
-  if(u.posEMA==null){ u.posEMA={lat,lon}; u.prevPosEMA={lat,lon}; u.prevPosTime=t; return; }
-  // update EMA position
-  const newLat = u.posEMA.lat*(1-alphaPos) + lat*alphaPos;
-  const newLon = u.posEMA.lon*(1-alphaPos) + lon*alphaPos;
-  const dt = (t - (u.prevPosTime||t))/1000; // seconds
-  if(dt<=0){ u.posEMA={lat:newLat,lon:newLon}; u.prevPosEMA={lat:newLat,lon:newLon}; u.prevPosTime=t; return; }
+// ---- NEW: velocity from regression over a sliding window ----
+function updateVelocityFromWindow(u, t, lat, lon){
+  if(u.lat0===null||u.lon0===null){ u.lat0=lat; u.lon0=lon; }
+  const p = projLocalMeters(u.lat0,u.lon0,lat,lon); // {x,y}
+  u.posBuf.push({t,lat,lon,x:p.x,y:p.y});
+  // keep only last N seconds
+  const winMs = getSogWinSec()*1000;
+  while(u.posBuf.length && u.posBuf[0].t < t - winMs){ u.posBuf.shift(); }
+  if(u.posBuf.length<2) return;
 
-  const dist = haversine(u.prevPosEMA.lat, u.prevPosEMA.lon, newLat, newLon); // meters
-  const spd_mps = dist/dt;
-  const spd_kt_raw = spd_mps * KNOTS_PER_MPS;
-  u.sogEMA = (u.sogEMA==null) ? spd_kt_raw : (u.sogEMA*(1-alphaSOG) + spd_kt_raw*alphaSOG);
+  // linear regression x(t), y(t) on seconds
+  const times = u.posBuf.map(pt => (pt.t - u.posBuf[0].t)/1000); // start at 0
+  const xs = u.posBuf.map(pt => pt.x), ys = u.posBuf.map(pt => pt.y);
+  const n = times.length;
+  let mt=0,mx=0,my=0; for(let i=0;i<n;i++){ mt+=times[i]; mx+=xs[i]; my+=ys[i]; }
+  mt/=n; mx/=n; my/=n;
+  let sTT=0,sTX=0,sTY=0;
+  for(let i=0;i<n;i++){ const dt=times[i]-mt; sTT+=dt*dt; sTX+=dt*(xs[i]-mx); sTY+=dt*(ys[i]-my); }
+  if(sTT<=0) return;
+  const vx = sTX/sTT; // m/s
+  const vy = sTY/sTT; // m/s
+  const spd_mps = Math.hypot(vx,vy);
+  const spd_kt = spd_mps * KNOTS_PER_MPS;
 
-  // heading only if SOG > 2 kt
-  if(u.sogEMA>2){
-    u.heading = bearingDeg(u.prevPosEMA.lat, u.prevPosEMA.lon, newLat, newLon);
-  } else {
-    u.heading = null;
-  }
+  // gentle EMA on top (optional)
+  const alpha = 0.2;
+  u.sogEMA = (u.sogEMA==null) ? spd_kt : (u.sogEMA*(1-alpha) + spd_kt*alpha);
 
-  // store for next
-  u.posEMA = {lat:newLat, lon:newLon};
-  u.prevPosEMA = {lat:newLat, lon:newLon};
-  u.prevPosTime = t;
+  // heading when moving >2 kt
+  u.heading = (u.sogEMA>2) ? bearingFromV(vx,vy) : null;
 
-  // append to SOG arrays / series
-  const x=(t-globalT0)/1000;
-  u.sogTimes.push(t);
-  u.sogVals.push(u.sogEMA);
-  u.sogSeries.push({x, y:u.sogEMA});
+  // series append
+  const xPlot=(t-globalT0)/1000;
+  u.sogTimes.push(t); u.sogVals.push(u.sogEMA); u.sogSeries.push({x:xPlot,y:u.sogEMA});
 }
 
-// ---- Recording buttons ----
+// ---- Recording ----
 const btnRecord=$('btnRecord'), recInfo=$('recInfo');
 btnRecord.addEventListener('click',()=>{ if(!recActive){ startRec(); } else { stopRec(); } });
 function startRec(){ recActive=true; recRows=[]; recStartedAt=Date.now(); btnRecord.textContent="Stop & Save"; btnRecord.classList.add('recording','blink'); if(window._rt) clearInterval(window._rt); window._rt=setInterval(()=>{recInfo.textContent=`Recording… ${((Date.now()-recStartedAt)/1000).toFixed(1)} s`;},200); log("recording started"); }
@@ -656,14 +664,12 @@ function connect(){
       if(u.nowElems.roll) u.nowElems.roll.textContent=roll.toFixed(2);
       if(u.nowElems.pitch)u.nowElems.pitch.textContent=pitch.toFixed(2);
 
-      // robust GNSS
-      const lat = coerceNum(d.lat);
-      const lon = coerceNum(d.lon);
-      const hasFix = validLatLon(lat,lon);
+      // GNSS
+      const lat=coerceNum(d.lat), lon=coerceNum(d.lon);
+      const hasFix=validLatLon(lat,lon);
 
-      // map & SOG/heading
       if(hasFix){
-        // map path & marker
+        // map
         u.gnssLatLngs.push([lat,lon]);
         if(u.gnssLatLngs.length>GNSS_KEEP) u.gnssLatLngs.shift();
         u.poly.setLatLngs(u.gnssLatLngs);
@@ -673,11 +679,11 @@ function connect(){
         if(!firstMapFixDone) fitMapIfFirst(lat,lon);
         if(u.nowElems.ll) u.nowElems.ll.textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
 
-        // SOG & heading (EMA)
-        updateSOGandHeading(u, t, lat, lon);
+        // velocity by regression over window
+        updateVelocityFromWindow(u, t, lat, lon);
         if(u.nowElems.sog) u.nowElems.sog.textContent = (u.sogEMA!=null)? u.sogEMA.toFixed(2) : '–';
         if(u.nowElems.hdg) u.nowElems.hdg.textContent = (u.heading!=null)? u.heading.toFixed(0) : '–';
-      }else{
+      } else {
         if(u.nowElems.ll) u.nowElems.ll.textContent = '–';
       }
 
@@ -696,10 +702,7 @@ function connect(){
       const ref=getRefUnit();
       if(ref===unit){ appendSyncedPoint(t); }
 
-      // update SOG chart live
       chartSOG.update('none');
-
-      // refresh stats (includes Mean SOG)
       recomputePeaksAndStatsAll();
       updateAxisRange();
 
@@ -716,7 +719,7 @@ document.getElementById('btnClear').addEventListener('click',()=>{
     u.times.length=0;u.roll.length=0;u.pitch.length=0;
     u.seriesRoll.length=0;u.seriesPitch.length=0;u.seriesRollPk.length=0;u.seriesPitchPk.length=0;
     u.gnssLatLngs.length=0; u.poly.setLatLngs([]); u.poly.setStyle({opacity:0}); u.marker.setStyle({opacity:0, fillOpacity:0});
-    u.posEMA=null; u.prevPosEMA=null; u.prevPosTime=null; u.sogEMA=null; u.heading=null;
+    u.lat0=null; u.lon0=null; u.posBuf.length=0; u.sogEMA=null; u.heading=null;
     u.sogTimes.length=0; u.sogVals.length=0; u.sogSeries.length=0;
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=false);
     chartSOG.data.datasets[u.idxSOG].hidden=false;
