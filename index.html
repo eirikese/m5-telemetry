@@ -138,7 +138,7 @@
 
 <script>
 const APP_VERSION="v1.1.2 (2025-08-25)";
-const ENCRYPTED_CREDS="PASTE_CIPHERTEXT_HERE"; // replace via encrypt.html
+const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9"; // replace via encrypt.html
 const $=id=>document.getElementById(id);
 function log(s){const el=$('log');el.textContent+=s+"\\n";el.scrollTop=el.scrollHeight}
 function setStatus(t,ok=false){$('status').textContent=t;$('status').className=ok?'ok':'bad'}
