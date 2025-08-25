@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>TrollSports Live v1.4.1 (2025-08-25)</title>
+<title>TrollSports Live v1.5.0 (2025-08-25)</title>
 <meta name="theme-color" content="#0b1220"/>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -23,7 +23,7 @@
   .small{font-size:12px;color:var(--muted)} .tiny{font-size:11px;color:var(--muted)} .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
   .num{font-weight:700;font-size:clamp(22px,5.8vw,34px);line-height:1.15}
   .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px} button{padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:#152341;color:#fff;cursor:pointer}
-  input,select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0e1730;color:var(--text)}
+  input,select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0e1730;color:#fff}
   label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.hidden{display:none}.ok{color:#6bd66b}.bad{color:#ff6b6b}
   .log{font-size:12px;background:#0a1022;color:#b7c3ff;padding:10px;border-radius:10px;max-height:200px;overflow:auto;border:1px dashed #253356}
@@ -45,7 +45,7 @@
 <body>
   <div class="topbar">
     <div class="app-title">TrollSports Live</div><div class="spacer"></div>
-    <div class="ver">v1.4.1 (2025-08-25)</div>
+    <div class="ver">v1.5.0 (2025-08-25)</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -84,6 +84,11 @@
           <div style="font-weight:700;margin-bottom:8px;">GNSS Map</div>
           <div id="map"></div>
           <div class="small" style="margin-top:6px;">Basemap © OpenStreetMap, © CARTO — Dark Matter</div>
+        </div>
+        <div class="card half">
+          <div style="font-weight:700;margin-bottom:8px;">SOG (knots)</div>
+          <div class="plot" style="height:40vh;min-height:260px;"><canvas id="chart_sog"></canvas></div>
+          <div class="small" id="sogInfo" style="margin-top:6px;"></div>
         </div>
       </div>
     </section>
@@ -163,11 +168,11 @@
   </div>
 
 <script>
-const APP_VERSION="v1.4.1 (2025-08-25)";
+const APP_VERSION="v1.5.0 (2025-08-25)";
 const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9";
 const $=id=>document.getElementById(id);
 
-// utils
+// ---- utils ----
 function log(s){const el=$('log');el.textContent+=s+"\\n";el.scrollTop=el.scrollHeight}
 function setStatus(t,ok=false){$('status').textContent=t;$('status').className=ok?'ok':'bad'}
 function meanStd(a){if(!a.length)return{mean:NaN,std:NaN};const m=a.reduce((x,y)=>x+y,0)/a.length;const v=a.reduce((x,y)=>x+(y-m)*(y-m),0)/a.length;return{mean:m,std:Math.sqrt(v)}}
@@ -191,19 +196,38 @@ function validLatLon(lat,lon){
          Number.isFinite(lat) && Number.isFinite(lon) &&
          Math.abs(lat)<=90 && Math.abs(lon)<=180;
 }
+// geo math
+const Rm=6371000; // meters
+function haversine(lat1,lon1,lat2,lon2){
+  const toR=a=>a*Math.PI/180;
+  const dlat=toR(lat2-lat1), dlon=toR(lon2-lon1);
+  const a=Math.sin(dlat/2)**2 + Math.cos(toR(lat1))*Math.cos(toR(lat2))*(Math.sin(dlon/2)**2);
+  return 2*Rm*Math.asin(Math.sqrt(a));
+}
+function bearingDeg(lat1,lon1,lat2,lon2){
+  const toR=a=>a*Math.PI/180, toD=a=>a*180/Math.PI;
+  const phi1=toR(lat1), phi2=toR(lat2), dlam=toR(lon2-lon1);
+  const y=Math.sin(dlam)*Math.cos(phi2);
+  const x=Math.cos(phi1)*Math.sin(phi2)-Math.sin(phi1)*Math.cos(phi2)*Math.cos(dlam);
+  let brg=toD(Math.atan2(y,x));
+  if(brg<0) brg+=360;
+  return brg;
+}
 
 // chart defaults
 Chart.defaults.color='#dfe7ff'; Chart.defaults.borderColor='#2a385a';
 
-// state
+// ---- state ----
 let client=null, unlocked=false, viewer={user:null,pass:null};
-let chartTS=null;
+let chartTS=null, chartSOG=null;
 let map=null, mapInited=false, firstMapFixDone=false;
 let globalT0=null, syncLastMs=null;
 const COLORS=["#4cc9f0","#ffd166","#ef476f","#06d6a0"];
 const units={}, discoveredOrder=[];
 const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000, GNSS_KEEP=4000;
+const KNOTS_PER_MPS=1.94384449;
 
+// sync
 let syncRefMode='auto';
 const syncRefSelect=$('syncRef');
 function setSyncRefMode(val){ syncRefMode=val; $('syncInfo').textContent=`Reference: ${val}`; resetSyncSeries(); }
@@ -215,12 +239,21 @@ let recActive=false, recRows=[], recStartedAt=null;
 // DOM
 const nowUnits=$('nowUnits'), statsUnits=$('statsUnits'), unitsList=$('unitsList');
 
-// charts & map
+// ---- charts & map ----
 function makeTimeseries(){
   const ctx=document.getElementById('chart_ts').getContext('2d');
   return new Chart(ctx,{type:'line',data:{datasets:[]},options:{
     animation:false,responsive:true,maintainAspectRatio:false,
     scales:{x:{type:'linear',title:{display:true,text:'time (s from start)'},ticks:{callback:v=>Number(v).toFixed(1)}},y:{title:{display:true,text:'degrees'}}},
+    plugins:{legend:{position:'bottom'}}
+  }});
+}
+function makeSOG(){
+  const ctx=document.getElementById('chart_sog').getContext('2d');
+  return new Chart(ctx,{type:'line',data:{datasets:[]},options:{
+    animation:false,responsive:true,maintainAspectRatio:false,
+    scales:{x:{type:'linear',title:{display:true,text:'time (s from start)'},ticks:{callback:v=>Number(v).toFixed(1)}},
+            y:{title:{display:true,text:'knots'}}},
     plugins:{legend:{position:'bottom'}}
   }});
 }
@@ -234,48 +267,80 @@ function makeMap(){
 }
 function fitMapIfFirst(lat,lon){ if(!firstMapFixDone){ map.setView([lat,lon], 15); firstMapFixDone=true; } }
 
-// unit mgmt
+// ---- units ----
 function ensureUnit(unitId){
   if(units[unitId]) return units[unitId];
   const color=COLORS[discoveredOrder.length%COLORS.length]; discoveredOrder.push(unitId);
   const opt=document.createElement('option'); opt.value=unitId; opt.textContent=unitId; syncRefSelect.appendChild(opt);
 
   const u=units[unitId]={color,visible:true,
+    // raw arrivals (roll/pitch)
     times:[], roll:[], pitch:[],
+    // synced series for plot
     seriesRoll:[], seriesPitch:[],
+    // peak markers (style: circles)
     seriesRollPk:[], seriesPitchPk:[],
+    // GNSS path + smoothing state
     gnssLatLngs:[],
+    posEMA:null, prevPosEMA:null, prevPosTime:null, sogEMA:null, heading:null,
+    // SOG series
+    sogTimes:[], sogVals:[], sogSeries:[],
+    // dataset idx
     idxRoll:null, idxPitch:null, idxRollPk:null, idxPitchPk:null,
+    idxSOG:null,
+    // map layers
     poly:null, marker:null,
+    // now & stats els
     nowElems:{}, statsElems:{},
+    // freq memory
     lastRollHz:NaN,lastRollAt:0,lastPitchHz:NaN,lastPitchAt:0
   };
 
+  // timeseries datasets
   const rollDs={label:`${unitId} roll`,data:u.seriesRoll,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15,spanGaps:true};
   const pitchDs={label:`${unitId} pitch`,data:u.seriesPitch,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15,borderDash:[6,4],spanGaps:true};
   chartTS.data.datasets.push(rollDs); u.idxRoll=chartTS.data.datasets.length-1;
   chartTS.data.datasets.push(pitchDs); u.idxPitch=chartTS.data.datasets.length-1;
 
-  const rollPk={label:`${unitId} roll peaks`,type:'scatter',data:u.seriesRollPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',showLine:false};
-  const pitchPk={label:`${unitId} pitch peaks`,type:'scatter',data:u.seriesPitchPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',showLine:false};
+  // peak markers (small circles)
+  const rollPk={label:`${unitId} roll peaks`,type:'scatter',data:u.seriesRollPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:4,pointStyle:'circle',showLine:false};
+  const pitchPk={label:`${unitId} pitch peaks`,type:'scatter',data:u.seriesPitchPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:4,pointStyle:'circle',showLine:false};
   chartTS.data.datasets.push(rollPk); u.idxRollPk=chartTS.data.datasets.length-1;
   chartTS.data.datasets.push(pitchPk); u.idxPitchPk=chartTS.data.datasets.length-1;
 
+  // SOG dataset
+  const sogDs={label:`${unitId} SOG`,data:u.sogSeries,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15,spanGaps:true};
+  chartSOG.data.datasets.push(sogDs); u.idxSOG=chartSOG.data.datasets.length-1;
+
+  // map layers
   u.poly = L.polyline([], {color, weight:3, opacity:0.95}).addTo(map);
   u.marker = L.circleMarker([0,0], {radius:6, color, fillColor:color, fillOpacity:1}).addTo(map);
   u.poly.setStyle({opacity:0}); u.marker.setStyle({opacity:0, fillOpacity:0});
 
+  // Now card
   const nowCard=document.createElement('div'); nowCard.className='unitNow uNums'; nowCard.style.setProperty('--ucolor',color);
   nowCard.innerHTML=`<div class="unitTag" style="background:${color}">${unitId}</div>
     <div class="grid">
       <div><div class="small">Roll</div><div class="num" id="now-roll-${unitId}">–</div></div>
       <div><div class="small">Pitch</div><div class="num" id="now-pitch-${unitId}">–</div></div>
       <div><div class="small">Freq (Hz)</div><div class="num" id="now-hz-${unitId}">–</div></div>
+      <div><div class="small">SOG (kt)</div><div class="num" id="now-sog-${unitId}">–</div></div>
+      <div><div class="small">Mean SOG (kt)</div><div class="num" id="now-sogmean-${unitId}">–</div></div>
+      <div><div class="small">Heading (°)</div><div class="num" id="now-hdg-${unitId}">–</div></div>
       <div style="grid-column:1/-1"><div class="small">Lat, Lon</div><div class="small mono" id="now-ll-${unitId}">–</div></div>
     </div>`;
   nowUnits.appendChild(nowCard);
-  u.nowElems={roll:$(`now-roll-${unitId}`),pitch:$(`now-pitch-${unitId}`),hz:$(`now-hz-${unitId}`),ll:$(`now-ll-${unitId}`)};
+  u.nowElems={
+    roll:$(`now-roll-${unitId}`),
+    pitch:$(`now-pitch-${unitId}`),
+    hz:$(`now-hz-${unitId}`),
+    sog:$(`now-sog-${unitId}`),
+    sogMean:$(`now-sogmean-${unitId}`),
+    hdg:$(`now-hdg-${unitId}`),
+    ll:$(`now-ll-${unitId}`)
+  };
 
+  // Stats card (add Mean SOG)
   const statsCol=document.createElement('div'); statsCol.className='card half unitStats'; statsCol.style.setProperty('--ucolor',color);
   statsCol.innerHTML=`<div style="font-weight:700;margin-bottom:8px;"><span class="unitTag" style="background:${color}">${unitId}</span> — window stats</div>
     <div class="grid">
@@ -287,15 +352,18 @@ function ensureUnit(unitId){
       <div><div class="small">Peaks Pitch</div><div class="num" id="st-pitch-pk-${unitId}">0</div></div>
       <div><div class="small">Freq Roll (Hz)</div><div class="num" id="st-roll-hz-${unitId}">–</div></div>
       <div><div class="small">Freq Pitch (Hz)</div><div class="num" id="st-pitch-hz-${unitId}">–</div></div>
+      <div style="grid-column:1/-1"><div class="small">Mean SOG (kt)</div><div class="num" id="st-sog-mean-${unitId}">–</div></div>
     </div>`;
   statsUnits.appendChild(statsCol);
   u.statsElems={
     rMean:$(`st-roll-mean-${unitId}`), rStd:$(`st-roll-std-${unitId}`),
     pMean:$(`st-pitch-mean-${unitId}`), pStd:$(`st-pitch-std-${unitId}`),
     rPk:$(`st-roll-pk-${unitId}`), pPk:$(`st-pitch-pk-${unitId}`),
-    rHz:$(`st-roll-hz-${unitId}`), pHz:$(`st-pitch-hz-${unitId}`)
+    rHz:$(`st-roll-hz-${unitId}`), pHz:$(`st-pitch-hz-${unitId}`),
+    sogMean:$(`st-sog-mean-${unitId}`)
   };
 
+  // settings checkbox controls all datasets + map
   const row=document.createElement('div');
   row.innerHTML=`<label style="display:flex;gap:8px;align-items:center">
     <input type="checkbox" id="chk-${unitId}" checked/>
@@ -305,6 +373,7 @@ function ensureUnit(unitId){
   row.querySelector('input').addEventListener('change',(e)=>{
     u.visible=e.target.checked;
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=!u.visible);
+    chartSOG.data.datasets[u.idxSOG].hidden=!u.visible;
     if(u.visible){
       if(!map.hasLayer(u.poly)) u.poly.addTo(map);
       if(!map.hasLayer(u.marker)) u.marker.addTo(map);
@@ -315,11 +384,11 @@ function ensureUnit(unitId){
       if(map.hasLayer(u.poly)) map.removeLayer(u.poly);
       if(map.hasLayer(u.marker)) map.removeLayer(u.marker);
     }
-    chartTS.update('none');
+    chartTS.update('none'); chartSOG.update('none');
   });
 
   if(getRefUnit()===unitId && globalT0===null) resetSyncSeries();
-  chartTS.update('none');
+  chartTS.update('none'); chartSOG.update('none');
   return u;
 }
 
@@ -353,17 +422,18 @@ function applyViewWindow(val){currentViewSec=Math.max(5,Math.min(600,parseInt(va
 viewRange.addEventListener('input',e=>applyViewWindow(e.target.value)); viewNum.addEventListener('change',e=>applyViewWindow(e.target.value));
 
 const winRange=$('winSecRange'), winNum=$('winSec');
-function applyWindow(val){const v=Math.max(5,Math.min(600,parseInt(val||'10',10))); winRange.value=v; winNum.value=v; const now=syncLastMs||Date.now(); recomputePeaksAndStatsAll(now); chartTS.update('none');}
+function applyWindow(val){const v=Math.max(5,Math.min(600,parseInt(val||'10',10))); winRange.value=v; winNum.value=v; const now=syncLastMs||Date.now(); recomputePeaksAndStatsAll(now); chartTS.update('none'); chartSOG.update('none');}
 winRange.addEventListener('input',e=>applyWindow(e.target.value)); winNum.addEventListener('change',e=>applyWindow(e.target.value));
 
 function updateAxisRange(){
-  if(!chartTS) return;
-  if(globalT0===null){chartTS.options.scales.x.min=0;chartTS.options.scales.x.max=currentViewSec;chartTS.update('none');return;}
+  if(globalT0===null){ if(chartTS){chartTS.options.scales.x.min=0;chartTS.options.scales.x.max=currentViewSec;chartTS.update('none');}
+                        if(chartSOG){chartSOG.options.scales.x.min=0;chartSOG.options.scales.x.max=currentViewSec;chartSOG.update('none');}
+                        return; }
   const last = syncLastMs || Date.now();
   const nowSec=(last-globalT0)/1000;
   const xmin=Math.max(0,nowSec-currentViewSec), xmax=Math.max(currentViewSec,nowSec);
-  chartTS.options.scales.x.min=Number(xmin.toFixed(1)); chartTS.options.scales.x.max=Number(xmax.toFixed(1));
-  chartTS.update('none');
+  if(chartTS){chartTS.options.scales.x.min=Number(xmin.toFixed(1)); chartTS.options.scales.x.max=Number(xmax.toFixed(1)); chartTS.update('none');}
+  if(chartSOG){chartSOG.options.scales.x.min=Number(xmin.toFixed(1)); chartSOG.options.scales.x.max=Number(xmax.toFixed(1)); chartSOG.update('none');}
 }
 
 // prune old
@@ -371,14 +441,20 @@ function pruneOld(nowMs){
   const keepMs=Math.max(parseFloat(winNum.value||'10')*1000,MAX_KEEP_SEC*1000);
   for(const id of Object.keys(units)){
     const u=units[id];
+    // raw roll/pitch arrivals
     while(u.times.length && u.times[0]<nowMs-keepMs){u.times.shift();u.roll.shift();u.pitch.shift();}
+    // plotted series (roll/pitch)
     while(u.seriesRoll.length && (globalT0 + u.seriesRoll[0].x*1000) < nowMs-keepMs){u.seriesRoll.shift();u.seriesPitch.shift();}
-    while(u.gnssLatLngs.length>GNSS_KEEP){u.gnssLatLngs.shift();}
+    // GNSS path length cap
+    while(u.gnssLatLngs.length>GNSS_KEEP){u.gnssLatLngs.shift(); if(u.poly) u.poly.setLatLngs(u.gnssLatLngs);}
+    // SOG
+    while(u.sogTimes.length && u.sogTimes[0]<nowMs-keepMs){u.sogTimes.shift();u.sogVals.shift();}
+    while(u.sogSeries.length && (globalT0 + u.sogSeries[0].x*1000) < nowMs-keepMs){u.sogSeries.shift();}
   }
 }
 
-// stats
-function recomputePeaksAndStatsAll(globalNowMs){
+// stats (incl. mean SOG)
+function recomputePeaksAndStatsAll(){
   const winSec=parseFloat(winNum.value||'10'), minDist=parseFloat($('minDist').value||'300'), minProm=parseFloat($('minProm').value||'5.0');
   for(const id of Object.keys(units)){
     const u=units[id]; if(!u.times.length) continue;
@@ -410,12 +486,20 @@ function recomputePeaksAndStatsAll(globalNowMs){
     if(u.statsElems.rHz)   u.statsElems.rHz.textContent  =isFinite(fShowR)?fShowR.toFixed(2):'–';
     if(u.statsElems.pHz)   u.statsElems.pHz.textContent  =isFinite(fShowP)?fShowP.toFixed(2):'–';
 
+    // Mean SOG over window (arrival-time)
+    let sIdx=0; while(sIdx<u.sogTimes.length && u.sogTimes[sIdx]<startMs) sIdx++;
+    const sogWin=u.sogVals.slice(sIdx);
+    const sogStats=meanStd(sogWin);
+    if(u.statsElems.sogMean) u.statsElems.sogMean.textContent=isFinite(sogStats.mean)?sogStats.mean.toFixed(2):'–';
+    if(u.nowElems.sogMean)   u.nowElems.sogMean.textContent  =isFinite(sogStats.mean)?sogStats.mean.toFixed(2):'–';
+
+    // Show Hz in Now tile (same logic as before)
     const fNow = Number.isFinite(fShowR)?fShowR:(Number.isFinite(fShowP)?fShowP:NaN);
     if(u.nowElems.hz) u.nowElems.hz.textContent = isFinite(fNow)? fNow.toFixed(2):'–';
   }
 }
 
-// sync plotting (arrival-time ZOH)
+// ---- synced plotting (arrival-time ZOH) ----
 function resetSyncSeries(){
   syncLastMs=null;
   let tfirst=null;
@@ -450,12 +534,48 @@ function appendSyncedPoint(t_ref){
 
   syncLastMs=t_ref;
   pruneOld(t_ref);
-  recomputePeaksAndStatsAll(t_ref);
+  recomputePeaksAndStatsAll();
   updateAxisRange();
   chartTS.update('none');
+  chartSOG.update('none');
 }
 
-// recording
+// ---- SOG/heading update from GNSS (EMA smoothing) ----
+function updateSOGandHeading(u, t, lat, lon){
+  const alphaPos=0.25;          // EMA on position
+  const alphaSOG=0.3;           // EMA on speed
+  if(u.posEMA==null){ u.posEMA={lat,lon}; u.prevPosEMA={lat,lon}; u.prevPosTime=t; return; }
+  // update EMA position
+  const newLat = u.posEMA.lat*(1-alphaPos) + lat*alphaPos;
+  const newLon = u.posEMA.lon*(1-alphaPos) + lon*alphaPos;
+  const dt = (t - (u.prevPosTime||t))/1000; // seconds
+  if(dt<=0){ u.posEMA={lat:newLat,lon:newLon}; u.prevPosEMA={lat:newLat,lon:newLon}; u.prevPosTime=t; return; }
+
+  const dist = haversine(u.prevPosEMA.lat, u.prevPosEMA.lon, newLat, newLon); // meters
+  const spd_mps = dist/dt;
+  const spd_kt_raw = spd_mps * KNOTS_PER_MPS;
+  u.sogEMA = (u.sogEMA==null) ? spd_kt_raw : (u.sogEMA*(1-alphaSOG) + spd_kt_raw*alphaSOG);
+
+  // heading only if SOG > 2 kt
+  if(u.sogEMA>2){
+    u.heading = bearingDeg(u.prevPosEMA.lat, u.prevPosEMA.lon, newLat, newLon);
+  } else {
+    u.heading = null;
+  }
+
+  // store for next
+  u.posEMA = {lat:newLat, lon:newLon};
+  u.prevPosEMA = {lat:newLat, lon:newLon};
+  u.prevPosTime = t;
+
+  // append to SOG arrays / series
+  const x=(t-globalT0)/1000;
+  u.sogTimes.push(t);
+  u.sogVals.push(u.sogEMA);
+  u.sogSeries.push({x, y:u.sogEMA});
+}
+
+// ---- Recording buttons ----
 const btnRecord=$('btnRecord'), recInfo=$('recInfo');
 btnRecord.addEventListener('click',()=>{ if(!recActive){ startRec(); } else { stopRec(); } });
 function startRec(){ recActive=true; recRows=[]; recStartedAt=Date.now(); btnRecord.textContent="Stop & Save"; btnRecord.classList.add('recording','blink'); if(window._rt) clearInterval(window._rt); window._rt=setInterval(()=>{recInfo.textContent=`Recording… ${((Date.now()-recStartedAt)/1000).toFixed(1)} s`;},200); log("recording started"); }
@@ -479,14 +599,14 @@ function stopRec(){
   recInfo.textContent=`Saved ${recRows.length} samples to ${fname}`; log(`saved CSV (${recRows.length} rows)`);
 }
 
-// tabs
+// ---- Tabs ----
 document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
   const name=b.dataset.tab; ['plot','stats','settings'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
   document.getElementById('tab-'+name).classList.remove('hidden');
   document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
 }));
 
-// unlock & connect
+// ---- Unlock & connect ----
 document.getElementById('btnUnlock').addEventListener('click',async ()=>{
   const pwd=document.getElementById('pw').value; if(!pwd){document.getElementById('unlockMsg').textContent='Enter a password.';return;}
   if(!ENCRYPTED_CREDS||ENCRYPTED_CREDS==='PASTE_CIPHERTEXT_HERE'){ document.getElementById('unlockMsg').textContent='No encrypted creds embedded.'; return; }
@@ -495,7 +615,7 @@ document.getElementById('btnUnlock').addEventListener('click',async ()=>{
     viewer.user=creds.user; viewer.pass=creds.pass; unlocked=true;
     document.getElementById('gate').classList.add('hidden'); document.getElementById('app').classList.remove('hidden');
     document.getElementById('cid').value='web-'+Math.random().toString(16).slice(2,10);
-    chartTS=makeTimeseries(); makeMap();
+    chartTS=makeTimeseries(); chartSOG=makeSOG(); makeMap();
     setStatus('unlocked — not connected',false);
     applyWindow(document.getElementById('winSec').value); applyViewWindow(document.getElementById('viewSec').value);
     syncRefSelect.addEventListener('change', e=>setSyncRefMode(e.target.value));
@@ -531,47 +651,57 @@ function connect(){
       }
       if(typeof roll!=='number'||typeof pitch!=='number'){log('msg missing roll/pitch: '+txt);return;}
 
+      // raw arrival buffers
       u.times.push(t); u.roll.push(roll); u.pitch.push(pitch);
       if(u.nowElems.roll) u.nowElems.roll.textContent=roll.toFixed(2);
       if(u.nowElems.pitch)u.nowElems.pitch.textContent=pitch.toFixed(2);
 
-      // --- GNSS robust handling ---
+      // robust GNSS
       const lat = coerceNum(d.lat);
       const lon = coerceNum(d.lon);
       const hasFix = validLatLon(lat,lon);
 
-      function safeMapUpdate(unit, lat, lon){
-        try{
-          if(!hasFix) return;
-          unit.gnssLatLngs.push([lat,lon]);
-          if(unit.gnssLatLngs.length>GNSS_KEEP) unit.gnssLatLngs.shift();
-          unit.poly.setLatLngs(unit.gnssLatLngs);
-          unit.poly.setStyle({opacity: unit.visible?0.95:0});
-          unit.marker.setLatLng([lat,lon]);
-          unit.marker.setStyle({opacity: unit.visible?1:0, fillOpacity: unit.visible?1:0});
-          if(!firstMapFixDone) fitMapIfFirst(lat,lon);
-        }catch(e){ log('map update skipped: '+e); }
-      }
-
+      // map & SOG/heading
       if(hasFix){
+        // map path & marker
+        u.gnssLatLngs.push([lat,lon]);
+        if(u.gnssLatLngs.length>GNSS_KEEP) u.gnssLatLngs.shift();
+        u.poly.setLatLngs(u.gnssLatLngs);
+        u.poly.setStyle({opacity: u.visible?0.95:0});
+        u.marker.setLatLng([lat,lon]);
+        u.marker.setStyle({opacity: u.visible?1:0, fillOpacity: u.visible?1:0});
+        if(!firstMapFixDone) fitMapIfFirst(lat,lon);
         if(u.nowElems.ll) u.nowElems.ll.textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
-        safeMapUpdate(u, lat, lon);
-      } else {
+
+        // SOG & heading (EMA)
+        updateSOGandHeading(u, t, lat, lon);
+        if(u.nowElems.sog) u.nowElems.sog.textContent = (u.sogEMA!=null)? u.sogEMA.toFixed(2) : '–';
+        if(u.nowElems.hdg) u.nowElems.hdg.textContent = (u.heading!=null)? u.heading.toFixed(0) : '–';
+      }else{
         if(u.nowElems.ll) u.nowElems.ll.textContent = '–';
       }
 
+      // record if active
       if(recActive){
         recRows.push({
           unit, t, seq:d.seq, roll, pitch,
-          lat: hasFix?lat:undefined,
-          lon: hasFix?lon:undefined,
+          lat: (hasFix?lat:undefined),
+          lon: (hasFix?lon:undefined),
           gnss_ms: (d.gnss_ms===null||d.gnss_ms===undefined)? undefined : d.gnss_ms,
           gnss_iso: (d.gnss_iso||'')
         });
       }
 
+      // synced roll/pitch plot driven by ref unit
       const ref=getRefUnit();
       if(ref===unit){ appendSyncedPoint(t); }
+
+      // update SOG chart live
+      chartSOG.update('none');
+
+      // refresh stats (includes Mean SOG)
+      recomputePeaksAndStatsAll();
+      updateAxisRange();
 
     }catch(e){log('parse error: '+e);}
   });
@@ -586,22 +716,17 @@ document.getElementById('btnClear').addEventListener('click',()=>{
     u.times.length=0;u.roll.length=0;u.pitch.length=0;
     u.seriesRoll.length=0;u.seriesPitch.length=0;u.seriesRollPk.length=0;u.seriesPitchPk.length=0;
     u.gnssLatLngs.length=0; u.poly.setLatLngs([]); u.poly.setStyle({opacity:0}); u.marker.setStyle({opacity:0, fillOpacity:0});
+    u.posEMA=null; u.prevPosEMA=null; u.prevPosTime=null; u.sogEMA=null; u.heading=null;
+    u.sogTimes.length=0; u.sogVals.length=0; u.sogSeries.length=0;
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=false);
+    chartSOG.data.datasets[u.idxSOG].hidden=false;
   }
-  globalT0=null; syncLastMs=null; chartTS.update('none'); log('cleared');
+  globalT0=null; syncLastMs=null; chartTS.update('none'); chartSOG.update('none'); log('cleared');
   firstMapFixDone=false; if(mapInited) map.setView([0,0],2);
 });
 
-// axis upkeep
-function updateAxisRange(){
-  if(!chartTS) return;
-  if(globalT0===null){chartTS.options.scales.x.min=0;chartTS.options.scales.x.max=currentViewSec;chartTS.update('none');return;}
-  const last = syncLastMs || Date.now();
-  const nowSec=(last-globalT0)/1000;
-  const xmin=Math.max(0,nowSec-currentViewSec), xmax=Math.max(currentViewSec,nowSec);
-  chartTS.options.scales.x.min=Number(xmin.toFixed(1)); chartTS.options.scales.x.max=Number(xmax.toFixed(1));
-  chartTS.update('none');
-}
+// keep axes tight to window
+setInterval(updateAxisRange, 500);
 </script>
 </body>
 </html>
