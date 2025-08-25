@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>TrollSports Live v1.2.1 (2025-08-25)</title>
+<title>TrollSports Live v1.2.2 (2025-08-25)</title>
 <meta name="theme-color" content="#0b1220"/>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -41,7 +41,7 @@
 <body>
   <div class="topbar">
     <div class="app-title">TrollSports Live</div><div class="spacer"></div>
-    <div class="ver">v1.2.1 (2025-08-25)</div>
+    <div class="ver">v1.2.2 (2025-08-25)</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -152,7 +152,7 @@
   </div>
 
 <script>
-const APP_VERSION="v1.2.1 (2025-08-25)";
+const APP_VERSION="v1.2.2 (2025-08-25)";
 const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9"; // replace via encrypt.html
 const $=id=>document.getElementById(id);
 
@@ -217,14 +217,14 @@ function ensureUnit(unitId){
     lastRollHz:NaN,lastRollAt:0,lastPitchHz:NaN,lastPitchAt:0
   };
 
-  const rollDs={label:`${unitId} roll`,data:u.seriesRoll,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15};
-  const pitchDs={label:`${unitId} pitch`,data:u.seriesPitch,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15,borderDash:[6,4]};
+  const rollDs={label:`${unitId} roll`,data:u.seriesRoll,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15,spanGaps:true};
+  const pitchDs={label:`${unitId} pitch`,data:u.seriesPitch,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15,borderDash:[6,4],spanGaps:true};
   chartTS.data.datasets.push(rollDs); u.idxRoll=chartTS.data.datasets.length-1;
   chartTS.data.datasets.push(pitchDs); u.idxPitch=chartTS.data.datasets.length-1;
 
   // peak markers (triangles)
-  const rollPk={label:`${unitId} roll peaks`,type:'scatter',data:u.seriesRollPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',showLine:false,pointRotation:0};
-  const pitchPk={label:`${unitId} pitch peaks`,type:'scatter',data:u.seriesPitchPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',showLine:false,pointRotation:180};
+  const rollPk={label:`${unitId} roll peaks`,type:'scatter',data:u.seriesRollPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',showLine:false};
+  const pitchPk={label:`${unitId} pitch peaks`,type:'scatter',data:u.seriesPitchPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',showLine:false};
   chartTS.data.datasets.push(rollPk); u.idxRollPk=chartTS.data.datasets.length-1;
   chartTS.data.datasets.push(pitchPk); u.idxPitchPk=chartTS.data.datasets.length-1;
 
@@ -283,7 +283,6 @@ function ensureUnit(unitId){
 // nearest index in arrival-time array
 function nearestIdx(times,target){
   if(!times.length) return -1;
-  // walk back to first >= target
   let i=times.length-1;
   while(i>0 && times[i-1]>target) i--;
   const c1=i, c0=Math.max(0,i-1);
@@ -363,22 +362,20 @@ function recomputePeaksAndStatsAll(globalNowMs){
     if(u.statsElems.rMean) u.statsElems.rMean.textContent=isFinite(rs.mean)?rs.mean.toFixed(2):'–';
     if(u.statsElems.rStd)  u.statsElems.rStd.textContent =isFinite(rs.std)? rs.std.toFixed(2) :'–';
     if(u.statsElems.pMean) u.statsElems.pMean.textContent=isFinite(ps.mean)?ps.mean.toFixed(2):'–';
-    if(u.statsElems.pStd)  u.statsElems.pStd.textContent =isFinite(ps.std)? rs.std.toFixed(2) :'–';
+    if(u.statsElems.pStd)  u.statsElems.pStd.textContent =isFinite(ps.std)? ps.std.toFixed(2) :'–';
     if(u.statsElems.rPk)   u.statsElems.rPk.textContent  =rPeaks.length;
     if(u.statsElems.pPk)   u.statsElems.pPk.textContent  =pPeaks.length;
     if(u.statsElems.rHz)   u.statsElems.rHz.textContent  =isFinite(fShowR)?fShowR.toFixed(2):'–';
     if(u.statsElems.pHz)   u.statsElems.pHz.textContent  =isFinite(fShowP)?fShowP.toFixed(2):'–';
 
-    // Now card frequency (per unit)
     const fNow = Number.isFinite(fShowR)?fShowR:(Number.isFinite(fShowP)?fShowP:NaN);
     if(u.nowElems.hz) u.nowElems.hz.textContent = isFinite(fNow)? fNow.toFixed(2):'–';
   }
 }
 
-// ===== SYNCED PLOTTING ON ARRIVAL =====
+// ===== SYNCED PLOTTING ON ARRIVAL (ZOH) =====
 function resetSyncSeries(){
   syncLastMs=null;
-  // set t0 = first arrival we have
   let tfirst=null;
   for(const id of Object.keys(units)){ if(units[id].times.length){ tfirst = (tfirst===null)? units[id].times[0] : Math.min(tfirst, units[id].times[0]); } }
   if(tfirst!==null) globalT0=tfirst;
@@ -386,20 +383,37 @@ function resetSyncSeries(){
   chartTS.update('none'); updateAxisRange(); log(`sync reset → ref=${getRefUnit()||'none'}`);
 }
 
-// append one x for all units at a reference arrival time
+// append one x for all units at reference arrival time
 function appendSyncedPoint(t_ref){
   if(globalT0===null) globalT0=t_ref;
-  const tol=parseFloat($('syncTol').value||'120'); // ms
+  const tol=parseFloat($('syncTol').value||'120'); // ms tolerance
   const x=(t_ref-globalT0)/1000;
 
   for(const id of Object.keys(units)){
     const u=units[id];
+
+    // find nearest raw arrival
     const idx=nearestIdx(u.times,t_ref);
     let yR=null,yP=null;
-    if(idx>=0 && Math.abs(u.times[idx]-t_ref)<=tol){ yR=u.roll[idx]; yP=u.pitch[idx]; }
+    if(idx>=0 && Math.abs(u.times[idx]-t_ref)<=tol){
+      yR=u.roll[idx]; yP=u.pitch[idx];
+    } else {
+      // ZOH: use last plotted value if exists, else last raw
+      const lastPlottedR = u.seriesRoll.length ? u.seriesRoll[u.seriesRoll.length-1].y : null;
+      const lastPlottedP = u.seriesPitch.length? u.seriesPitch[u.seriesPitch.length-1].y: null;
+      const lastRawR = u.roll.length ? u.roll[u.roll.length-1] : null;
+      const lastRawP = u.pitch.length? u.pitch[u.pitch.length-1]: null;
+
+      yR = (lastPlottedR!=null) ? lastPlottedR : (lastRawR!=null ? lastRawR : null);
+      yP = (lastPlottedP!=null) ? lastPlottedP : (lastRawP!=null ? lastRawP : null);
+      // If still null (unit has never sent), skip adding a point for that unit
+      if(yR===null && yP===null) continue;
+    }
+
     u.seriesRoll.push({x,y:yR});
     u.seriesPitch.push({x,y:yP});
   }
+
   syncLastMs=t_ref;
   pruneOld(t_ref);
   recomputePeaksAndStatsAll(t_ref);
@@ -483,7 +497,7 @@ function connect(){
       if(u.nowElems.pitch)u.nowElems.pitch.textContent=pitch.toFixed(2);
       if(recActive) recRows.push({unit,t,seq:d.seq,roll,pitch});
 
-      // reference-driven synced plot
+      // reference-driven synced plot (ZOH fill for non-ref units)
       const ref=getRefUnit();
       if(ref===unit){ appendSyncedPoint(t); }
 
