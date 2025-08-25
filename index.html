@@ -3,12 +3,11 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>TrollSports Live v1.4.0 (2025-08-25)</title>
+<title>TrollSports Live v1.3.0 (2025-08-25)</title>
 <meta name="theme-color" content="#0b1220"/>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
 <style>
   :root{--bg:#0b1220;--card:#0f1a31;--muted:#92a1bd;--text:#e6eefc;--accent:#4cc9f0;--border:#223050;--rec:#ff4d4d}
   *{box-sizing:border-box} html,body{height:100%}
@@ -35,16 +34,14 @@
   .unitNow,.unitStats{border-radius:10px;padding:10px;border:1px solid var(--border);background:#0e1730}
   .unitTag{display:inline-block;padding:2px 8px;border-radius:999px;font-weight:700;margin-bottom:6px;color:#000}
   .uNums .num{color:var(--ucolor)}
-  #map{height:40vh;min-height:260px;border-radius:12px;overflow:hidden}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
 <body>
   <div class="topbar">
     <div class="app-title">TrollSports Live</div><div class="spacer"></div>
-    <div class="ver">v1.4.0 (2025-08-25)</div>
+    <div class="ver">v1.3.0 (2025-08-25)</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -80,9 +77,9 @@
       </div>
       <div class="row">
         <div class="card grow">
-          <div style="font-weight:700;margin-bottom:8px;">GNSS Map (dark)</div>
-          <div id="map"></div>
-          <div class="tiny" style="margin-top:6px;">Tiles: © OpenStreetMap contributors, © CARTO (Dark Matter)</div>
+          <div style="font-weight:700;margin-bottom:8px;">GNSS Track (lon vs lat)</div>
+          <div class="plot" style="height:40vh;min-height:260px;"><canvas id="chart_gnss"></canvas></div>
+          <div class="small" id="gnssInfo" style="margin-top:6px;"></div>
         </div>
       </div>
     </section>
@@ -162,7 +159,7 @@
   </div>
 
 <script>
-const APP_VERSION="v1.4.0 (2025-08-25)";
+const APP_VERSION="v1.3.0 (2025-08-25)";
 const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9"; // replace via encrypt.html
 const $=id=>document.getElementById(id);
 
@@ -180,15 +177,13 @@ Chart.defaults.color='#dfe7ff'; Chart.defaults.borderColor='#2a385a';
 
 // state
 let client=null, unlocked=false, viewer={user:null,pass:null};
-let chartTS=null;
-let map=null, darkTiles=null, autoFitDone=false;
+let chartTS=null, chartGNSS=null;
 let globalT0=null;             // first arrival time seen
 let syncLastMs=null;           // last ref-arrival plotted
 const COLORS=["#4cc9f0","#ffd166","#ef476f","#06d6a0"];
 const units={}; const discoveredOrder=[];
-const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000, GNSS_KEEP=4000;
+const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000, GNSS_KEEP=4000; // keep ~4000 dots per unit
 
-// sync
 let syncRefMode='auto';
 const syncRefSelect=$('syncRef');
 function setSyncRefMode(val){ syncRefMode=val; $('syncInfo').textContent=`Reference: ${val}`; resetSyncSeries(); }
@@ -200,7 +195,7 @@ let recActive=false, recRows=[], recStartedAt=null;
 // DOM
 const nowUnits=$('nowUnits'), statsUnits=$('statsUnits'), unitsList=$('unitsList');
 
-// charts & map
+// ----- charts -----
 function makeTimeseries(){
   const ctx=$('chart_ts').getContext('2d');
   return new Chart(ctx,{type:'line',data:{datasets:[]},options:{
@@ -209,26 +204,29 @@ function makeTimeseries(){
     plugins:{legend:{position:'bottom'}}
   }});
 }
-function initMap(){
-  map = L.map('map',{zoomControl:true, attributionControl:true});
-  darkTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
-    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
-    subdomains:'abcd', maxZoom:19
-  }).addTo(map);
-  map.setView([0,0],2);
+function makeGnss(){
+  const ctx=$('chart_gnss').getContext('2d');
+  return new Chart(ctx,{type:'scatter',data:{datasets:[]},options:{
+    animation:false,responsive:true,maintainAspectRatio:false,
+    scales:{x:{title:{display:true,text:'longitude'},ticks:{callback:v=>Number(v).toFixed(5)}},
+            y:{title:{display:true,text:'latitude'},ticks:{callback:v=>Number(v).toFixed(5)}}},
+    plugins:{legend:{position:'bottom'}}
+  }});
 }
-function fitAllUnits(){
-  let bounds=null;
+function updateGnssAxes(){
+  let xmin=+Infinity,xmax=-Infinity,ymin=+Infinity,ymax=-Infinity,have=false;
   for(const id of Object.keys(units)){
-    const u=units[id];
-    if(!u.visible || !u.gpsLineLatLngs.length) continue;
-    const b = L.latLngBounds(u.gpsLineLatLngs);
-    bounds = bounds ? bounds.extend(b) : b;
+    const u=units[id]; if(!u.visible) continue;
+    for(const p of u.gnssPts){ if(Number.isFinite(p.x)&&Number.isFinite(p.y)){have=true;xmin=Math.min(xmin,p.x);xmax=Math.max(xmax,p.x);ymin=Math.min(ymin,p.y);ymax=Math.max(ymax,p.y);} }
   }
-  if(bounds && bounds.isValid()) map.fitBounds(bounds.pad(0.1));
+  if(!have){ chartGNSS.options.scales.x.min=undefined; chartGNSS.options.scales.x.max=undefined; chartGNSS.options.scales.y.min=undefined; chartGNSS.options.scales.y.max=undefined; chartGNSS.update('none'); return; }
+  const padX=(xmax-xmin)||0.0005, padY=(ymax-ymin)||0.0005;
+  chartGNSS.options.scales.x.min=xmin-padX*0.1; chartGNSS.options.scales.x.max=xmax+padX*0.1;
+  chartGNSS.options.scales.y.min=ymin-padY*0.1; chartGNSS.options.scales.y.max=ymax+padY*0.1;
+  chartGNSS.update('none');
 }
 
-// unit mgmt
+// ----- unit mgmt -----
 function ensureUnit(unitId){
   if(units[unitId]) return units[unitId];
   const color=COLORS[discoveredOrder.length%COLORS.length]; discoveredOrder.push(unitId);
@@ -240,11 +238,11 @@ function ensureUnit(unitId){
     times:[], roll:[], pitch:[],
     // synced series
     seriesRoll:[], seriesPitch:[],
-    // peaks
+    // peaks (from raw IMU)
     seriesRollPk:[], seriesPitchPk:[],
-    // GNSS map
-    gpsLineLatLngs:[], line:null, head:null,
-    idxRoll:null, idxPitch:null, idxRollPk:null, idxPitchPk:null,
+    // GNSS
+    gnssPts:[], // array of {x: lon, y: lat}
+    idxRoll:null, idxPitch:null, idxRollPk:null, idxPitchPk:null, idxGnss:null,
     nowElems:{}, statsElems:{},
     lastRollHz:NaN,lastRollAt:0,lastPitchHz:NaN,lastPitchAt:0
   };
@@ -261,10 +259,9 @@ function ensureUnit(unitId){
   chartTS.data.datasets.push(rollPk); u.idxRollPk=chartTS.data.datasets.length-1;
   chartTS.data.datasets.push(pitchPk); u.idxPitchPk=chartTS.data.datasets.length-1;
 
-  // Map layers
-  u.line = L.polyline([], {color, weight:3, opacity:0.95});
-  u.head = L.circleMarker([0,0], {color:'#000', weight:2, fillColor:color, fillOpacity:0.95, radius:6});
-  u.line.addTo(map); u.head.addTo(map);
+  // GNSS dataset (scatter)
+  const gnssDs={label:`${unitId} GNSS`,type:'scatter',data:u.gnssPts,parsing:false,showLine:false,pointRadius:2,backgroundColor:color,borderColor:color};
+  chartGNSS.data.datasets.push(gnssDs); u.idxGnss=chartGNSS.data.datasets.length-1;
 
   // Now card
   const nowCard=document.createElement('div'); nowCard.className='unitNow uNums'; nowCard.style.setProperty('--ucolor',color);
@@ -309,15 +306,14 @@ function ensureUnit(unitId){
   row.querySelector('input').addEventListener('change',(e)=>{
     u.visible=e.target.checked;
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=!u.visible);
-    if(u.visible){ if(!map.hasLayer(u.line)) u.line.addTo(map); if(!map.hasLayer(u.head)) u.head.addTo(map); }
-    else{ if(map.hasLayer(u.line)) map.removeLayer(u.line); if(map.hasLayer(u.head)) map.removeLayer(u.head); }
-    const card=nowCard; const sc=statsCol;
-    card.style.display=u.visible?'':'none'; sc.style.display=u.visible?'':'none';
-    chartTS.update('none');
+    chartGNSS.data.datasets[u.idxGnss].hidden = !u.visible;
+    nowCard.style.display=u.visible?'':'none';
+    statsCol.style.display=u.visible?'':'none';
+    chartTS.update('none'); chartGNSS.update('none');
   });
 
   if(getRefUnit()===unitId && globalT0===null) resetSyncSeries();
-  chartTS.update('none');
+  chartTS.update('none'); chartGNSS.update('none');
   return u;
 }
 
@@ -331,7 +327,7 @@ function nearestIdx(times,target){
   return (d1<=d0)?c1:c0;
 }
 
-// peaks
+// peaks over raw arrivals
 function detectPeaks(vals,times,minDistMs,minProm){
   const n=vals.length; if(n<3) return [];
   const peaks=[]; let lastT=-1e18;
@@ -372,13 +368,11 @@ function pruneOld(nowMs){
     while(u.times.length && u.times[0]<nowMs-keepMs){u.times.shift();u.roll.shift();u.pitch.shift();}
     while(u.seriesRoll.length && (globalT0 + u.seriesRoll[0].x*1000) < nowMs-keepMs){u.seriesRoll.shift();u.seriesPitch.shift();}
     // gnss cap by count
-    while(u.gpsLineLatLngs.length>GNSS_KEEP){u.gpsLineLatLngs.shift();}
+    while(u.gnssPts.length>GNSS_KEEP){u.gnssPts.shift();}
   }
 }
 
-// stats
-const MAX_KEEP_SEC_CONST=MAX_KEEP_SEC;
-const FREQ_HOLD_MS=2000;
+// per-unit stats using per-unit latest arrival times
 function recomputePeaksAndStatsAll(globalNowMs){
   const winSec=parseFloat(winNum.value||'10'), minDist=parseFloat($('minDist').value||'300'), minProm=parseFloat($('minProm').value||'5.0');
   for(const id of Object.keys(units)){
@@ -390,7 +384,7 @@ function recomputePeaksAndStatsAll(globalNowMs){
     const rPeaks=detectPeaks(rWin,tWin,minDist,minProm);
     const pPeaks=detectPeaks(pWin,tWin,minDist,minProm);
 
-    // peak markers
+    // map peaks to plot coordinates (arrival-based)
     u.seriesRollPk.length=0; u.seriesPitchPk.length=0;
     for(const pk of rPeaks){u.seriesRollPk.push({x:(pk.t-globalT0)/1000,y:pk.v});}
     for(const pk of pPeaks){u.seriesPitchPk.push({x:(pk.t-globalT0)/1000,y:pk.v});}
@@ -418,7 +412,7 @@ function recomputePeaksAndStatsAll(globalNowMs){
   }
 }
 
-// SYNC plotting (ZOH)
+// ===== SYNCED PLOTTING ON ARRIVAL (ZOH) =====
 function resetSyncSeries(){
   syncLastMs=null;
   let tfirst=null;
@@ -427,21 +421,28 @@ function resetSyncSeries(){
   for(const id of Object.keys(units)){ units[id].seriesRoll.length=0; units[id].seriesPitch.length=0; }
   chartTS.update('none'); updateAxisRange(); log(`sync reset → ref=${getRefUnit()||'none'}`);
 }
+
+// append one x for all units at reference arrival time
 function appendSyncedPoint(t_ref){
   if(globalT0===null) globalT0=t_ref;
-  const tol=parseFloat($('syncTol').value||'120');
+  const tol=parseFloat($('syncTol').value||'120'); // ms tolerance
   const x=(t_ref-globalT0)/1000;
 
   for(const id of Object.keys(units)){
     const u=units[id];
+
+    // find nearest raw arrival
     const idx=nearestIdx(u.times,t_ref);
     let yR=null,yP=null;
-    if(idx>=0 && Math.abs(u.times[idx]-t_ref)<=tol){ yR=u.roll[idx]; yP=u.pitch[idx]; }
-    else{
+    if(idx>=0 && Math.abs(u.times[idx]-t_ref)<=tol){
+      yR=u.roll[idx]; yP=u.pitch[idx];
+    } else {
+      // ZOH: use last plotted value if exists, else last raw
       const lastPlottedR = u.seriesRoll.length ? u.seriesRoll[u.seriesRoll.length-1].y : null;
       const lastPlottedP = u.seriesPitch.length? u.seriesPitch[u.seriesPitch.length-1].y: null;
       const lastRawR = u.roll.length ? u.roll[u.roll.length-1] : null;
       const lastRawP = u.pitch.length? u.pitch[u.pitch.length-1]: null;
+
       yR = (lastPlottedR!=null) ? lastPlottedR : (lastRawR!=null ? lastRawR : null);
       yP = (lastPlottedP!=null) ? lastPlottedP : (lastRawP!=null ? lastRawP : null);
       if(yR===null && yP===null) continue;
@@ -457,7 +458,7 @@ function appendSyncedPoint(t_ref){
   chartTS.update('none');
 }
 
-// Recording
+// ===== Recording =====
 const btnRecord=$('btnRecord'), recInfo=$('recInfo');
 btnRecord.addEventListener('click',()=>{ if(!recActive){ startRec(); } else { stopRec(); } });
 function startRec(){ recActive=true; recRows=[]; recStartedAt=Date.now(); btnRecord.textContent="Stop & Save"; btnRecord.classList.add('recording','blink'); if(window._rt) clearInterval(window._rt); window._rt=setInterval(()=>{recInfo.textContent=`Recording… ${((Date.now()-recStartedAt)/1000).toFixed(1)} s`;},200); log("recording started"); }
@@ -485,7 +486,6 @@ function stopRec(){
 document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
   const name=b.dataset.tab; ['plot','stats','settings'].forEach(t=>$('tab-'+t).classList.add('hidden')); $('tab-'+name).classList.remove('hidden');
   document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
-  if(name==='plot' && map){ setTimeout(()=>{ map.invalidateSize(); }, 150); }
 }));
 
 // Unlock & connect
@@ -497,7 +497,7 @@ $('btnUnlock').addEventListener('click',async ()=>{
     viewer.user=creds.user; viewer.pass=creds.pass; unlocked=true;
     $('gate').classList.add('hidden'); $('app').classList.remove('hidden');
     $('cid').value='web-'+Math.random().toString(16).slice(2,10);
-    chartTS=makeTimeseries(); initMap();
+    chartTS=makeTimeseries(); chartGNSS=makeGnss();
     setStatus('unlocked — not connected',false);
     applyWindow($('winSec').value); applyViewWindow($('viewSec').value);
     syncRefSelect.addEventListener('change', e=>setSyncRefMode(e.target.value));
@@ -519,7 +519,7 @@ function connect(){
   client.on('error',e=>{setStatus('error',false);log('error: '+(e?.message||e));});
   client.on('message',(topic,payload)=>{
     try{
-      // ARRIVAL time
+      // ARRIVAL time — ignore device ts_ms completely
       const t = Date.now();
 
       // parse & map
@@ -541,18 +541,14 @@ function connect(){
       if(u.nowElems.roll) u.nowElems.roll.textContent=roll.toFixed(2);
       if(u.nowElems.pitch)u.nowElems.pitch.textContent=pitch.toFixed(2);
 
-      // GNSS (optional)
+      // GNSS fields (optional)
       const lat = (d.lat===null||d.lat===undefined)? null : Number(d.lat);
       const lon = (d.lon===null||d.lon===undefined)? null : Number(d.lon);
       if(Number.isFinite(lat) && Number.isFinite(lon)){
-        u.gpsLineLatLngs.push([lat,lon]);
-        if(u.gpsLineLatLngs.length>GNSS_KEEP) u.gpsLineLatLngs.shift();
-        u.line.setLatLngs(u.gpsLineLatLngs);
-        u.head.setLatLng([lat,lon]);
+        u.gnssPts.push({x:lon,y:lat});
+        if(u.gnssPts.length>GNSS_KEEP) u.gnssPts.shift();
         if(u.nowElems.ll) u.nowElems.ll.textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
-        if(!autoFitDone){
-          fitAllUnits(); autoFitDone=true;
-        }
+        updateGnssAxes();
       } else {
         if(u.nowElems.ll) u.nowElems.ll.textContent = '–';
       }
@@ -568,11 +564,11 @@ function connect(){
         });
       }
 
-      // reference-driven synced plot (ZOH for non-ref)
+      // reference-driven synced plot (ZOH fill for non-ref units)
       const ref=getRefUnit();
       if(ref===unit){ appendSyncedPoint(t); }
 
-    }catch(e){log('parse error: '+e+'\n'+(payload?.toString?.()||''));}
+    }catch(e){log('parse error: '+e);}
   });
 }
 
@@ -584,13 +580,11 @@ $('btnClear').addEventListener('click',()=>{
     const u=units[id];
     u.times.length=0;u.roll.length=0;u.pitch.length=0;
     u.seriesRoll.length=0;u.seriesPitch.length=0;u.seriesRollPk.length=0;u.seriesPitchPk.length=0;
-    u.gpsLineLatLngs.length=0;
-    if(u.line) u.line.setLatLngs([]);
-    if(u.head) u.head.setLatLng([0,0]);
+    u.gnssPts.length=0;
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=false);
+    if(chartGNSS && u.idxGnss!=null) chartGNSS.data.datasets[u.idxGnss].hidden=false;
   }
-  globalT0=null; syncLastMs=null; autoFitDone=false;
-  chartTS.update('none'); updateAxisRange(); log('cleared');
+  globalT0=null; syncLastMs=null; chartTS.update('none'); updateAxisRange(); if(chartGNSS) {updateGnssAxes(); chartGNSS.update('none');} log('cleared');
 });
 </script>
 </body>
