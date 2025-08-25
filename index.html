@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>TrollSports Live v1.1.1 (2025-08-25)</title>
+<title>TrollSports Live v1.1.2 (2025-08-25)</title>
 <meta name="theme-color" content="#0b1220"/>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <style>
-  :root{--bg:#0b1220;--card:#0f1a31;--muted:#92a1bd;--text:#e6eefc;--accent:#4cc9f0;--border:#223050;--rec:#ff4d4d;}
+  :root{--bg:#0b1220;--card:#0f1a31;--muted:#92a1bd;--text:#e6eefc;--accent:#4cc9f0;--border:#223050;--rec:#ff4d4d}
   *{box-sizing:border-box} html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial,sans-serif;padding-bottom:env(safe-area-inset-bottom)}
   .topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:10px;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;background:linear-gradient(180deg,#0a1120,#0c1526);border-bottom:1px solid var(--border)}
@@ -40,7 +40,7 @@
 <body>
   <div class="topbar">
     <div class="app-title">TrollSports Live</div><div class="spacer"></div>
-    <div class="ver">v1.1.1 (2025-08-25)</div>
+    <div class="ver">v1.1.2 (2025-08-25)</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -67,7 +67,7 @@
         <div class="card grow"><div class="plot"><canvas id="chart_ts"></canvas></div></div>
         <div class="card half" id="nowPanel">
           <div style="font-weight:700;margin-bottom:8px;">Now</div>
-          <div class="small" id="last">—</div>
+          <!-- removed the 'last' line -->
           <div id="nowUnits" class="grid" style="margin-top:10px;grid-template-columns:1fr;gap:12px"></div>
           <div class="btns" style="margin-top:12px">
             <button id="btnRecord">Start Recording</button>
@@ -137,8 +137,8 @@
   </div>
 
 <script>
-const APP_VERSION="v1.1.1";
-const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9"; // replace via encrypt.html
+const APP_VERSION="v1.1.2 (2025-08-25)";
+const ENCRYPTED_CREDS="PASTE_CIPHERTEXT_HERE"; // replace via encrypt.html
 const $=id=>document.getElementById(id);
 function log(s){const el=$('log');el.textContent+=s+"\\n";el.scrollTop=el.scrollHeight}
 function setStatus(t,ok=false){$('status').textContent=t;$('status').className=ok?'ok':'bad'}
@@ -158,7 +158,7 @@ let client=null, unlocked=false, viewer={user:null,pass:null};
 let chartTS=null, globalT0=null;
 const COLORS=["#4cc9f0","#ffd166","#ef476f","#06d6a0"]; // unit palette
 const units={}; const discoveredOrder=[];
-const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000; // hold last freq for 2s to prevent flicker
+const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000; // 2s anti-flicker hold
 
 // recording
 let recActive=false, recRows=[], recStartedAt=null, recTimer=null;
@@ -192,20 +192,20 @@ function ensureUnit(unitId){
     times:[],roll:[],pitch:[],seriesRoll:[],seriesPitch:[],
     seriesRollPk:[],seriesPitchPk:[],
     idxRoll:null,idxPitch:null,idxRollPk:null,idxPitchPk:null,
-    nowElems:{},statsElems:{}, lastFreqHz:NaN,lastFreqAt:0
+    nowElems:{},statsElems:{},
+    // per-unit freq hold (roll & pitch)
+    lastRollHz:NaN,lastRollAt:0,lastPitchHz:NaN,lastPitchAt:0
   };
 
-  // lines
+  // main lines
   const rollDs={label:`${unitId} roll`,data:u.seriesRoll,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15};
   const pitchDs={label:`${unitId} pitch`,data:u.seriesPitch,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15,borderDash:[6,4]};
   chartTS.data.datasets.push(rollDs); u.idxRoll=chartTS.data.datasets.length-1;
   chartTS.data.datasets.push(pitchDs); u.idxPitch=chartTS.data.datasets.length-1;
 
-  // peak markers (triangles, same color)
-  const rollPk={label:`${unitId} roll peaks`,type:'scatter',data:u.seriesRollPk,parsing:false,
-                backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',showLine:false};
-  const pitchPk={label:`${unitId} pitch peaks`,type:'scatter',data:u.seriesPitchPk,parsing:false,
-                 backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',rotation:3.14159,showLine:false};
+  // peak markers (triangles per unit)
+  const rollPk={label:`${unitId} roll peaks`,type:'scatter',data:u.seriesRollPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',showLine:false};
+  const pitchPk={label:`${unitId} pitch peaks`,type:'scatter',data:u.seriesPitchPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',rotation:3.14159,showLine:false};
   chartTS.data.datasets.push(rollPk); u.idxRollPk=chartTS.data.datasets.length-1;
   chartTS.data.datasets.push(pitchPk); u.idxPitchPk=chartTS.data.datasets.length-1;
 
@@ -263,7 +263,7 @@ function ensureUnit(unitId){
   return u;
 }
 
-// peak detection
+// peaks
 function detectPeaks(vals,times,minDistMs,minProm){
   const n=vals.length; if(n<3) return [];
   const peaks=[]; let lastT=-1e18;
@@ -303,50 +303,59 @@ function pruneOldAll(nowMs){
     while(u.times.length && u.times[0]<nowMs-keepMs){
       u.times.shift();u.roll.shift();u.pitch.shift();
       u.seriesRoll.shift();u.seriesPitch.shift();
-      // peaks will be recomputed, so no need to prune here
+      // peak arrays will be fully recomputed
     }
   }
 }
 
-// recompute stats + peaks (per-unit)
-function recomputePeaksAndStatsAll(nowMs){
+// recompute stats + peaks (per-unit, with per-unit "now")
+function recomputePeaksAndStatsAll(globalNowMs){
   const winSec=parseFloat(winNum.value||'10'), minDist=parseFloat($('minDist').value||'300'), minProm=parseFloat($('minProm').value||'5.0');
-  const startMs=nowMs - winSec*1000;
 
   for(const id of Object.keys(units)){
     const u=units[id];
+    if(!u.times.length) continue;
+
+    const nowU = u.times[u.times.length-1];                 // per-unit "now"
+    const startMs = nowU - winSec*1000;                     // window per unit
+
     let s=0; while(s<u.times.length && u.times[s]<startMs) s++;
     const tWin=u.times.slice(s), rWin=u.roll.slice(s), pWin=u.pitch.slice(s);
 
     const rPeaks=detectPeaks(rWin,tWin,minDist,minProm);
     const pPeaks=detectPeaks(pWin,tWin,minDist,minProm);
 
-    // map peaks to plot coordinates (seconds from globalT0)
+    // map peaks to plot time
     u.seriesRollPk.length=0; u.seriesPitchPk.length=0;
     for(const pk of rPeaks){u.seriesRollPk.push({x:(pk.t-globalT0)/1000,y:pk.v});}
     for(const pk of pPeaks){u.seriesPitchPk.push({x:(pk.t-globalT0)/1000,y:pk.v});}
 
-    // frequency estimate and anti-flicker
-    function freq(peaks){ if(peaks.length<2) return NaN; let sum=0,c=0; for(let i=1;i<peaks.length;i++){const dt=(peaks[i].t-peaks[i-1].t)/1000; if(dt>0){sum+=dt;c++;}} return c?1/(sum/c):NaN;}
+    // frequency per-channel + anti-flicker hold
+    function freq(peaks){ if(peaks.length<2) return NaN; let sum=0,c=0; for(let i=1;i<peaks.length;i++){const dt=(peaks[i].t-peaks[i-1].t)/1000; if(dt>0){sum+=dt;c++;}} return c?1/(sum/c):NaN; }
     const fR=freq(rPeaks), fP=freq(pPeaks);
-    let fDisp=Number.isFinite(fR)?fR:(Number.isFinite(fP)?fP:NaN);
-    if(Number.isFinite(fDisp)){ u.lastFreqHz=fDisp; u.lastFreqAt=nowMs; }
-    const fShow=(Number.isFinite(u.lastFreqHz) && (nowMs-(u.lastFreqAt||0)<FREQ_HOLD_MS)) ? u.lastFreqHz : (Number.isFinite(fDisp)?fDisp:NaN);
+
+    if(Number.isFinite(fR)){ u.lastRollHz=fR; u.lastRollAt=nowU; }
+    if(Number.isFinite(fP)){ u.lastPitchHz=fP; u.lastPitchAt=nowU; }
+
+    const fShowR = (Number.isFinite(u.lastRollHz)  && (nowU - (u.lastRollAt||0)  < FREQ_HOLD_MS))  ? u.lastRollHz  : (Number.isFinite(fR)?fR:NaN);
+    const fShowP = (Number.isFinite(u.lastPitchHz) && (nowU - (u.lastPitchAt||0) < FREQ_HOLD_MS)) ? u.lastPitchHz : (Number.isFinite(fP)?fP:NaN);
 
     // stats
     const rs=meanStd(rWin), ps=meanStd(pWin);
 
-    // update UI
+    // update Stats UI
     if(u.statsElems.rMean) u.statsElems.rMean.textContent = isFinite(rs.mean)? rs.mean.toFixed(2):'–';
     if(u.statsElems.rStd)  u.statsElems.rStd.textContent  = isFinite(rs.std)?  rs.std.toFixed(2) :'–';
     if(u.statsElems.pMean) u.statsElems.pMean.textContent = isFinite(ps.mean)? ps.mean.toFixed(2):'–';
     if(u.statsElems.pStd)  u.statsElems.pStd.textContent  = isFinite(ps.std)?  ps.std.toFixed(2) :'–';
     if(u.statsElems.rPk)   u.statsElems.rPk.textContent   = rPeaks.length;
     if(u.statsElems.pPk)   u.statsElems.pPk.textContent   = pPeaks.length;
-    if(u.statsElems.rHz)   u.statsElems.rHz.textContent   = isFinite(fR)? fR.toFixed(2):'–';
-    if(u.statsElems.pHz)   u.statsElems.pHz.textContent   = isFinite(fP)? fP.toFixed(2):'–';
+    if(u.statsElems.rHz)   u.statsElems.rHz.textContent   = isFinite(fShowR)? fShowR.toFixed(2):'–';
+    if(u.statsElems.pHz)   u.statsElems.pHz.textContent   = isFinite(fShowP)? fShowP.toFixed(2):'–';
 
-    if(u.nowElems.hz)      u.nowElems.hz.textContent      = isFinite(fShow)? fShow.toFixed(2):'–';
+    // update Now card freq (use roll if available, else pitch)
+    const fNow = Number.isFinite(fShowR)?fShowR:(Number.isFinite(fShowP)?fShowP:NaN);
+    if(u.nowElems.hz) u.nowElems.hz.textContent = isFinite(fNow)? fNow.toFixed(2):'–';
   }
 }
 
@@ -426,7 +435,6 @@ function connect(){
       u.seriesPitch.push({x:(t-globalT0)/1000,y:pitch});
 
       pruneOldAll(t);
-      $('last').textContent=`unit=${unit} seq=${d.seq??'?'} roll=${roll.toFixed(2)}° pitch=${pitch.toFixed(2)}°`;
       if(u.nowElems.roll) u.nowElems.roll.textContent=roll.toFixed(2);
       if(u.nowElems.pitch)u.nowElems.pitch.textContent=pitch.toFixed(2);
       if(recActive) recRows.push({unit,t,seq:d.seq,roll,pitch});
@@ -443,6 +451,10 @@ $('btnClear').addEventListener('click',()=>{
   for(const id of Object.keys(units)){
     const u=units[id];
     u.times.length=0;u.roll.length=0;u.pitch.length=0;u.seriesRoll.length=0;u.seriesPitch.length=0;u.seriesRollPk.length=0;u.seriesPitchPk.length=0;
+    chartTS.data.datasets[u.idxRoll].hidden=false;
+    chartTS.data.datasets[u.idxPitch].hidden=false;
+    chartTS.data.datasets[u.idxRollPk].hidden=false;
+    chartTS.data.datasets[u.idxPitchPk].hidden=false;
   }
   globalT0=null; chartTS.update('none'); updateAxisRange(); log('cleared');
 });
