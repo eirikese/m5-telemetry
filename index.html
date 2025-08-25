@@ -3,18 +3,18 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>TrollSports Live v1.4.0 (2025-08-25)</title>
+<title>TrollSports Live v1.4.1 (2025-08-25)</title>
 <meta name="theme-color" content="#0b1220"/>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-BB3hGbN5SxbF2VYw2s8m2GQbJ8ywG3QnBk9jHPL3yyw=" crossorigin=""/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
 <style>
   :root{--bg:#0b1220;--card:#0f1a31;--muted:#92a1bd;--text:#e6eefc;--accent:#4cc9f0;--border:#223050;--rec:#ff4d4d}
   *{box-sizing:border-box} html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial,sans-serif;padding-bottom:env(safe-area-inset-bottom)}
   .topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:10px;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;background:linear-gradient(180deg,#0a1120,#0c1526);border-bottom:1px solid var(--border)}
-  .app-title{font-weight:700;letter-spacing:.2px}.spacer{flex:1}.ver{color:var(--muted);font-size:12px}
+  .app-title{font-weight:700}.spacer{flex:1}.ver{color:var(--muted);font-size:12px}
   .tabs{display:flex;gap:6px}.tabbtn{padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:#0f1a31;color:var(--text);cursor:pointer;font-weight:600}
   .tabbtn.active{background:#152341;border-color:#2a3c64}
   .wrap{padding:12px;display:flex;flex-direction:column;gap:12px}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch}
@@ -40,12 +40,12 @@
 </style>
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-o9N1j7kGStGDaZp6G3l3aQzuo2a9gqX+YyxBfWYBE9I=" crossorigin=""></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
 <body>
   <div class="topbar">
     <div class="app-title">TrollSports Live</div><div class="spacer"></div>
-    <div class="ver">v1.4.0 (2025-08-25)</div>
+    <div class="ver">v1.4.1 (2025-08-25)</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -163,8 +163,8 @@
   </div>
 
 <script>
-const APP_VERSION="v1.4.0 (2025-08-25)";
-const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9"; // replace via encrypt.html
+const APP_VERSION="v1.4.1 (2025-08-25)";
+const ENCRYPTED_CREDS="PASTE_CIPHERTEXT_HERE";
 const $=id=>document.getElementById(id);
 
 // utils
@@ -176,6 +176,22 @@ const b64d=b64=>Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
 async function deriveKey(pw,salt){const enc=new TextEncoder();const mat=await crypto.subtle.importKey('raw',enc.encode(pw),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:120000,hash:'SHA-256'},mat,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])}
 async function decryptCreds(pass,blob){const j=JSON.parse(atob(blob));const key=await deriveKey(pass,b64d(j.salt));const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64d(j.iv)},key,b64d(j.ct));return JSON.parse(new TextDecoder().decode(new Uint8Array(pt)))}
 
+// GNSS guards
+function coerceNum(v){
+  if(v===null||v===undefined) return null;
+  if(typeof v==='string'){
+    const s=v.trim().toLowerCase();
+    if(s===''||s==='null'||s==='nan'||s==='undefined') return null;
+  }
+  const n=Number(v);
+  return Number.isFinite(n)? n : null;
+}
+function validLatLon(lat,lon){
+  return lat!==null && lon!==null &&
+         Number.isFinite(lat) && Number.isFinite(lon) &&
+         Math.abs(lat)<=90 && Math.abs(lon)<=180;
+}
+
 // chart defaults
 Chart.defaults.color='#dfe7ff'; Chart.defaults.borderColor='#2a385a';
 
@@ -183,11 +199,10 @@ Chart.defaults.color='#dfe7ff'; Chart.defaults.borderColor='#2a385a';
 let client=null, unlocked=false, viewer={user:null,pass:null};
 let chartTS=null;
 let map=null, mapInited=false, firstMapFixDone=false;
-let globalT0=null;             // first arrival time seen
-let syncLastMs=null;           // last ref-arrival plotted
+let globalT0=null, syncLastMs=null;
 const COLORS=["#4cc9f0","#ffd166","#ef476f","#06d6a0"];
-const units={}; const discoveredOrder=[];
-const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000, GNSS_KEEP=4000; // keep ~4000 pts per unit
+const units={}, discoveredOrder=[];
+const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000, GNSS_KEEP=4000;
 
 let syncRefMode='auto';
 const syncRefSelect=$('syncRef');
@@ -200,7 +215,7 @@ let recActive=false, recRows=[], recStartedAt=null;
 // DOM
 const nowUnits=$('nowUnits'), statsUnits=$('statsUnits'), unitsList=$('unitsList');
 
-// ----- charts -----
+// charts & map
 function makeTimeseries(){
   const ctx=document.getElementById('chart_ts').getContext('2d');
   return new Chart(ctx,{type:'line',data:{datasets:[]},options:{
@@ -209,69 +224,47 @@ function makeTimeseries(){
     plugins:{legend:{position:'bottom'}}
   }});
 }
-
-// ----- map -----
 function makeMap(){
   map = L.map('map',{zoomControl:true});
-  // Dark Matter basemap
   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
-    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-    subdomains:'abcd', maxZoom:20
+    attribution:'&copy; OSM & CARTO', subdomains:'abcd', maxZoom:20
   }).addTo(map);
   map.setView([0,0], 2);
   mapInited=true;
 }
+function fitMapIfFirst(lat,lon){ if(!firstMapFixDone){ map.setView([lat,lon], 15); firstMapFixDone=true; } }
 
-function fitMapIfFirst(lat,lon){
-  if(!firstMapFixDone){
-    map.setView([lat,lon], 15);
-    firstMapFixDone=true;
-  }
-}
-
-// ----- unit mgmt -----
+// unit mgmt
 function ensureUnit(unitId){
   if(units[unitId]) return units[unitId];
   const color=COLORS[discoveredOrder.length%COLORS.length]; discoveredOrder.push(unitId);
-  // add to ref selector
   const opt=document.createElement('option'); opt.value=unitId; opt.textContent=unitId; syncRefSelect.appendChild(opt);
 
   const u=units[unitId]={color,visible:true,
-    // raw arrivals
     times:[], roll:[], pitch:[],
-    // synced series
     seriesRoll:[], seriesPitch:[],
-    // peaks (from raw IMU)
     seriesRollPk:[], seriesPitchPk:[],
-    // GNSS path
     gnssLatLngs:[],
-    // datasets idx
     idxRoll:null, idxPitch:null, idxRollPk:null, idxPitchPk:null,
-    // map layers
     poly:null, marker:null,
     nowElems:{}, statsElems:{},
     lastRollHz:NaN,lastRollAt:0,lastPitchHz:NaN,lastPitchAt:0
   };
 
-  // Timeseries datasets
   const rollDs={label:`${unitId} roll`,data:u.seriesRoll,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15,spanGaps:true};
   const pitchDs={label:`${unitId} pitch`,data:u.seriesPitch,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15,borderDash:[6,4],spanGaps:true};
   chartTS.data.datasets.push(rollDs); u.idxRoll=chartTS.data.datasets.length-1;
   chartTS.data.datasets.push(pitchDs); u.idxPitch=chartTS.data.datasets.length-1;
 
-  // peak markers (triangles)
   const rollPk={label:`${unitId} roll peaks`,type:'scatter',data:u.seriesRollPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',showLine:false};
   const pitchPk={label:`${unitId} pitch peaks`,type:'scatter',data:u.seriesPitchPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:5,pointStyle:'triangle',showLine:false};
   chartTS.data.datasets.push(rollPk); u.idxRollPk=chartTS.data.datasets.length-1;
   chartTS.data.datasets.push(pitchPk); u.idxPitchPk=chartTS.data.datasets.length-1;
 
-  // Map layers
   u.poly = L.polyline([], {color, weight:3, opacity:0.95}).addTo(map);
   u.marker = L.circleMarker([0,0], {radius:6, color, fillColor:color, fillOpacity:1}).addTo(map);
-  // Hide layers until we have a fix
   u.poly.setStyle({opacity:0}); u.marker.setStyle({opacity:0, fillOpacity:0});
 
-  // Now card
   const nowCard=document.createElement('div'); nowCard.className='unitNow uNums'; nowCard.style.setProperty('--ucolor',color);
   nowCard.innerHTML=`<div class="unitTag" style="background:${color}">${unitId}</div>
     <div class="grid">
@@ -283,7 +276,6 @@ function ensureUnit(unitId){
   nowUnits.appendChild(nowCard);
   u.nowElems={roll:$(`now-roll-${unitId}`),pitch:$(`now-pitch-${unitId}`),hz:$(`now-hz-${unitId}`),ll:$(`now-ll-${unitId}`)};
 
-  // Stats card
   const statsCol=document.createElement('div'); statsCol.className='card half unitStats'; statsCol.style.setProperty('--ucolor',color);
   statsCol.innerHTML=`<div style="font-weight:700;margin-bottom:8px;"><span class="unitTag" style="background:${color}">${unitId}</span> — window stats</div>
     <div class="grid">
@@ -304,7 +296,6 @@ function ensureUnit(unitId){
     rHz:$(`st-roll-hz-${unitId}`), pHz:$(`st-pitch-hz-${unitId}`)
   };
 
-  // Settings checkbox (also controls map layers)
   const row=document.createElement('div');
   row.innerHTML=`<label style="display:flex;gap:8px;align-items:center">
     <input type="checkbox" id="chk-${unitId}" checked/>
@@ -317,7 +308,6 @@ function ensureUnit(unitId){
     if(u.visible){
       if(!map.hasLayer(u.poly)) u.poly.addTo(map);
       if(!map.hasLayer(u.marker)) u.marker.addTo(map);
-      // Restore opacity if we have points
       const hasFix = u.gnssLatLngs.length>0;
       u.poly.setStyle({opacity: hasFix?0.95:0});
       u.marker.setStyle({opacity: hasFix?1:0, fillOpacity: hasFix?1:0});
@@ -333,7 +323,7 @@ function ensureUnit(unitId){
   return u;
 }
 
-// nearest index in arrival-time array
+// nearest index
 function nearestIdx(times,target){
   if(!times.length) return -1;
   let i=times.length-1;
@@ -343,7 +333,7 @@ function nearestIdx(times,target){
   return (d1<=d0)?c1:c0;
 }
 
-// peaks over raw arrivals
+// peaks
 function detectPeaks(vals,times,minDistMs,minProm){
   const n=vals.length; if(n<3) return [];
   const peaks=[]; let lastT=-1e18;
@@ -376,19 +366,18 @@ function updateAxisRange(){
   chartTS.update('none');
 }
 
-// prune old samples
+// prune old
 function pruneOld(nowMs){
   const keepMs=Math.max(parseFloat(winNum.value||'10')*1000,MAX_KEEP_SEC*1000);
   for(const id of Object.keys(units)){
     const u=units[id];
     while(u.times.length && u.times[0]<nowMs-keepMs){u.times.shift();u.roll.shift();u.pitch.shift();}
     while(u.seriesRoll.length && (globalT0 + u.seriesRoll[0].x*1000) < nowMs-keepMs){u.seriesRoll.shift();u.seriesPitch.shift();}
-    // gnss cap by count
     while(u.gnssLatLngs.length>GNSS_KEEP){u.gnssLatLngs.shift();}
   }
 }
 
-// per-unit stats using per-unit latest arrival times
+// stats
 function recomputePeaksAndStatsAll(globalNowMs){
   const winSec=parseFloat(winNum.value||'10'), minDist=parseFloat($('minDist').value||'300'), minProm=parseFloat($('minProm').value||'5.0');
   for(const id of Object.keys(units)){
@@ -400,12 +389,10 @@ function recomputePeaksAndStatsAll(globalNowMs){
     const rPeaks=detectPeaks(rWin,tWin,minDist,minProm);
     const pPeaks=detectPeaks(pWin,tWin,minDist,minProm);
 
-    // map peaks to plot coordinates (arrival-based)
     u.seriesRollPk.length=0; u.seriesPitchPk.length=0;
     for(const pk of rPeaks){u.seriesRollPk.push({x:(pk.t-globalT0)/1000,y:pk.v});}
     for(const pk of pPeaks){u.seriesPitchPk.push({x:(pk.t-globalT0)/1000,y:pk.v});}
 
-    // per-unit frequencies + 2s hold
     function freq(peaks){ if(peaks.length<2) return NaN; let s=0,c=0; for(let i=1;i<peaks.length;i++){const dt=(peaks[i].t-peaks[i-1].t)/1000; if(dt>0){s+=dt;c++;}} return c?1/(s/c):NaN; }
     const fR=freq(rPeaks), fP=freq(pPeaks);
     if(Number.isFinite(fR)){u.lastRollHz=fR;u.lastRollAt=nowU;}
@@ -428,7 +415,7 @@ function recomputePeaksAndStatsAll(globalNowMs){
   }
 }
 
-// ===== SYNCED PLOTTING ON ARRIVAL (ZOH) =====
+// sync plotting (arrival-time ZOH)
 function resetSyncSeries(){
   syncLastMs=null;
   let tfirst=null;
@@ -437,28 +424,22 @@ function resetSyncSeries(){
   for(const id of Object.keys(units)){ units[id].seriesRoll.length=0; units[id].seriesPitch.length=0; }
   chartTS.update('none'); updateAxisRange(); log(`sync reset → ref=${getRefUnit()||'none'}`);
 }
-
-// append one x for all units at reference arrival time
 function appendSyncedPoint(t_ref){
   if(globalT0===null) globalT0=t_ref;
-  const tol=parseFloat($('syncTol').value||'120'); // ms tolerance
+  const tol=parseFloat($('syncTol').value||'120');
   const x=(t_ref-globalT0)/1000;
 
   for(const id of Object.keys(units)){
     const u=units[id];
-
-    // find nearest raw arrival
     const idx=nearestIdx(u.times,t_ref);
     let yR=null,yP=null;
     if(idx>=0 && Math.abs(u.times[idx]-t_ref)<=tol){
       yR=u.roll[idx]; yP=u.pitch[idx];
     } else {
-      // ZOH: use last plotted value if exists, else last raw
       const lastPlottedR = u.seriesRoll.length ? u.seriesRoll[u.seriesRoll.length-1].y : null;
       const lastPlottedP = u.seriesPitch.length? u.seriesPitch[u.seriesPitch.length-1].y: null;
       const lastRawR = u.roll.length ? u.roll[u.roll.length-1] : null;
       const lastRawP = u.pitch.length? u.pitch[u.pitch.length-1]: null;
-
       yR = (lastPlottedR!=null) ? lastPlottedR : (lastRawR!=null ? lastRawR : null);
       yP = (lastPlottedP!=null) ? lastPlottedP : (lastRawP!=null ? lastRawP : null);
       if(yR===null && yP===null) continue;
@@ -474,7 +455,7 @@ function appendSyncedPoint(t_ref){
   chartTS.update('none');
 }
 
-// ===== Recording =====
+// recording
 const btnRecord=$('btnRecord'), recInfo=$('recInfo');
 btnRecord.addEventListener('click',()=>{ if(!recActive){ startRec(); } else { stopRec(); } });
 function startRec(){ recActive=true; recRows=[]; recStartedAt=Date.now(); btnRecord.textContent="Stop & Save"; btnRecord.classList.add('recording','blink'); if(window._rt) clearInterval(window._rt); window._rt=setInterval(()=>{recInfo.textContent=`Recording… ${((Date.now()-recStartedAt)/1000).toFixed(1)} s`;},200); log("recording started"); }
@@ -498,14 +479,14 @@ function stopRec(){
   recInfo.textContent=`Saved ${recRows.length} samples to ${fname}`; log(`saved CSV (${recRows.length} rows)`);
 }
 
-// Tabs
+// tabs
 document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
   const name=b.dataset.tab; ['plot','stats','settings'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
   document.getElementById('tab-'+name).classList.remove('hidden');
   document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
 }));
 
-// Unlock & connect
+// unlock & connect
 document.getElementById('btnUnlock').addEventListener('click',async ()=>{
   const pwd=document.getElementById('pw').value; if(!pwd){document.getElementById('unlockMsg').textContent='Enter a password.';return;}
   if(!ENCRYPTED_CREDS||ENCRYPTED_CREDS==='PASTE_CIPHERTEXT_HERE'){ document.getElementById('unlockMsg').textContent='No encrypted creds embedded.'; return; }
@@ -536,10 +517,7 @@ function connect(){
   client.on('error',e=>{setStatus('error',false);log('error: '+(e?.message||e));});
   client.on('message',(topic,payload)=>{
     try{
-      // ARRIVAL time — ignore device ts_ms completely
       const t = Date.now();
-
-      // parse & map
       let txt; try{txt=new TextDecoder().decode(payload);}catch{txt=payload.toString?payload.toString():'';}
       const d=JSON.parse(txt);
       let unit=d.unit_id; if(!unit){const m=topic.split('/'); if(m.length>=3) unit=m[1];}
@@ -553,42 +531,45 @@ function connect(){
       }
       if(typeof roll!=='number'||typeof pitch!=='number'){log('msg missing roll/pitch: '+txt);return;}
 
-      // RAW arrival-based buffers
       u.times.push(t); u.roll.push(roll); u.pitch.push(pitch);
       if(u.nowElems.roll) u.nowElems.roll.textContent=roll.toFixed(2);
       if(u.nowElems.pitch)u.nowElems.pitch.textContent=pitch.toFixed(2);
 
-      // GNSS fields (optional)
-      const lat = (d.lat===null||d.lat===undefined)? null : Number(d.lat);
-      const lon = (d.lon===null||d.lon===undefined)? null : Number(d.lon);
-      const hasFix = Number.isFinite(lat) && Number.isFinite(lon);
+      // --- GNSS robust handling ---
+      const lat = coerceNum(d.lat);
+      const lon = coerceNum(d.lon);
+      const hasFix = validLatLon(lat,lon);
+
+      function safeMapUpdate(unit, lat, lon){
+        try{
+          if(!hasFix) return;
+          unit.gnssLatLngs.push([lat,lon]);
+          if(unit.gnssLatLngs.length>GNSS_KEEP) unit.gnssLatLngs.shift();
+          unit.poly.setLatLngs(unit.gnssLatLngs);
+          unit.poly.setStyle({opacity: unit.visible?0.95:0});
+          unit.marker.setLatLng([lat,lon]);
+          unit.marker.setStyle({opacity: unit.visible?1:0, fillOpacity: unit.visible?1:0});
+          if(!firstMapFixDone) fitMapIfFirst(lat,lon);
+        }catch(e){ log('map update skipped: '+e); }
+      }
+
       if(hasFix){
-        // append & trim
-        u.gnssLatLngs.push([lat,lon]);
-        if(u.gnssLatLngs.length>GNSS_KEEP) u.gnssLatLngs.shift();
-        // show on map
-        u.poly.setLatLngs(u.gnssLatLngs);
-        u.poly.setStyle({opacity: u.visible?0.95:0});
-        u.marker.setLatLng([lat,lon]);
-        u.marker.setStyle({opacity: u.visible?1:0, fillOpacity: u.visible?1:0});
-        if(!firstMapFixDone) fitMapIfFirst(lat,lon);
         if(u.nowElems.ll) u.nowElems.ll.textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+        safeMapUpdate(u, lat, lon);
       } else {
         if(u.nowElems.ll) u.nowElems.ll.textContent = '–';
       }
 
-      // record if active
       if(recActive){
         recRows.push({
           unit, t, seq:d.seq, roll, pitch,
-          lat: (hasFix?lat:undefined),
-          lon: (hasFix?lon:undefined),
+          lat: hasFix?lat:undefined,
+          lon: hasFix?lon:undefined,
           gnss_ms: (d.gnss_ms===null||d.gnss_ms===undefined)? undefined : d.gnss_ms,
           gnss_iso: (d.gnss_iso||'')
         });
       }
 
-      // reference-driven synced plot (ZOH fill for non-ref units)
       const ref=getRefUnit();
       if(ref===unit){ appendSyncedPoint(t); }
 
@@ -610,6 +591,17 @@ document.getElementById('btnClear').addEventListener('click',()=>{
   globalT0=null; syncLastMs=null; chartTS.update('none'); log('cleared');
   firstMapFixDone=false; if(mapInited) map.setView([0,0],2);
 });
+
+// axis upkeep
+function updateAxisRange(){
+  if(!chartTS) return;
+  if(globalT0===null){chartTS.options.scales.x.min=0;chartTS.options.scales.x.max=currentViewSec;chartTS.update('none');return;}
+  const last = syncLastMs || Date.now();
+  const nowSec=(last-globalT0)/1000;
+  const xmin=Math.max(0,nowSec-currentViewSec), xmax=Math.max(currentViewSec,nowSec);
+  chartTS.options.scales.x.min=Number(xmin.toFixed(1)); chartTS.options.scales.x.max=Number(xmax.toFixed(1));
+  chartTS.update('none');
+}
 </script>
 </body>
 </html>
