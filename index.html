@@ -10,33 +10,78 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
 <style>
-  :root{--bg:#0b1220;--card:#0f1a31;--muted:#92a1bd;--text:#e6eefc;--accent:#4cc9f0;--border:#223050;--rec:#ff4d4d}
+  /* ===== THEME TOKENS ===== */
+  :root{
+    --bg:#0b1220; --card:#0f1a31; --muted:#92a1bd; --text:#e6eefc;
+    --accent:#4cc9f0; --border:#223050; --rec:#ff4d4d;
+  }
+  /* Light theme overrides */
+  body.light{
+    --bg:#f7f9ff; --card:#ffffff; --muted:#5a6a85; --text:#0e1a2f;
+    --accent:#2463eb; --border:#dde6f7; --rec:#d02626;
+  }
+
   *{box-sizing:border-box} html,body{height:100%}
-  body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial,sans-serif;padding-bottom:env(safe-area-inset-bottom)}
-  .topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:10px;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;background:linear-gradient(180deg,#0a1120,#0c1526);border-bottom:1px solid var(--border)}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial,sans-serif;
+    padding-bottom:env(safe-area-inset-bottom)
+  }
+  .topbar{
+    position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:10px;
+    padding:calc(8px + env(safe-area-inset-top)) 12px 8px;
+    background:linear-gradient(180deg, color-mix(in lab, var(--bg) 85%, #000 15%), color-mix(in lab, var(--bg) 70%, #000 30%));
+    border-bottom:1px solid var(--border)
+  }
   .app-title{font-weight:700}.spacer{flex:1}.ver{color:var(--muted);font-size:12px}
-  .tabs{display:flex;gap:6px}.tabbtn{padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:#0f1a31;color:#fff;cursor:pointer;font-weight:600}
-  .tabbtn.active{background:#152341;border-color:#2a3c64}
-  .wrap{padding:12px;display:flex;flex-direction:column;gap:12px}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch}
-  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;box-shadow:0 1px 10px rgba(0,0,0,.2)}
-  .grow{flex:1 1 560px}.half{flex:1 1 320px;min-width:300px}
-  .small{font-size:12px;color:var(--muted)} .tiny{font-size:11px;color:var(--muted)} .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+  .tabs{display:flex;gap:6px}.tabbtn{padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--card);color:inherit;cursor:pointer;font-weight:600}
+  .tabbtn.active{background:color-mix(in lab, var(--card) 85%, var(--accent) 15%);border-color:color-mix(in lab, var(--border) 60%, var(--accent) 40%)}
+
+  .wrap{padding:12px;display:flex;flex-direction:column;gap:12px}
+
+  /* ===== EQUAL BOX SIZES & EQUAL PADDING =====
+     Use a grid so each card in the same row is equal height.
+  */
+  .row{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(320px, 1fr));
+    gap:12px;            /* equal horizontal & vertical spacing */
+    align-items:stretch; /* make cards stretch to equal heights */
+  }
+
+  .card{
+    background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;
+    box-shadow:0 1px 10px rgba(0,0,0,.12);
+    height:100%;         /* fill grid cell height for equal boxes */
+    display:flex;flex-direction:column; /* let inner content grow */
+  }
+
+  .grow{ /* kept for compatibility; grid controls width now */ }
+  .half{ /* kept for compatibility; grid controls width now */ }
+
+  .small{font-size:12px;color:var(--muted)}
+  .tiny{font-size:11px;color:var(--muted)}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
   .num{font-weight:700;font-size:clamp(22px,5.8vw,34px);line-height:1.15}
-  .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px} button{padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:#152341;color:#fff;cursor:pointer}
-  input,select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0e1730;color:#fff}
+
+  .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+  button{padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:color-mix(in lab, var(--card) 85%, var(--accent) 15%);color:#fff;cursor:pointer}
+  input,select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:color-mix(in lab, var(--bg) 85%, #000 0%);color:inherit}
   label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.hidden{display:none}.ok{color:#6bd66b}.bad{color:#ff6b6b}
-  .log{font-size:12px;background:#0a1022;color:#b7c3ff;padding:10px;border-radius:10px;max-height:200px;overflow:auto;border:1px dashed #253356}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .hidden{display:none}
+  .ok{color:#6bd66b}.bad{color:#ff6b6b}
+  .log{font-size:12px;background:color-mix(in lab, var(--bg) 92%, #000 8%);color:color-mix(in lab, var(--text) 80%, var(--muted) 20%);padding:10px;border-radius:10px;max-height:200px;overflow:auto;border:1px dashed color-mix(in lab, var(--border) 70%, var(--accent) 30%)}
   .plot{position:relative;height:45vh;min-height:280px;width:100%} canvas{display:block}
   .recording{background:#4a1111;border-color:#ff7a7a;color:#fff}.recording::before{content:"● ";color:var(--rec)}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,77,77,.85)}70%{box-shadow:0 0 0 12px rgba(255,77,77,0)}100%{box-shadow:0 0 0 0 rgba(255,77,77,0)}}
   .blink{animation:pulse 1s infinite}
   .range-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center} input[type="range"]{width:100%;accent-color:var(--accent)}
-  .unitNow,.unitStats{border-radius:10px;padding:10px;border:1px solid var(--border);background:#0e1730}
+  .unitNow,.unitStats{border-radius:10px;padding:10px;border:1px solid var(--border);background:color-mix(in lab, var(--bg) 85%, var(--card) 15%)}
   .unitTag{display:inline-block;padding:2px 8px;border-radius:999px;font-weight:700;margin-bottom:6px;color:#000}
   .uNums .num{color:var(--ucolor)}
   #map{height:40vh;min-height:260px;border-radius:12px;overflow:hidden}
-  .leaflet-container{background:#0b1220}
+  .leaflet-container{background:var(--bg)}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
@@ -55,12 +100,14 @@
 
   <!-- Gate -->
   <div id="gate" class="wrap">
-    <div class="card half">
-      <div style="font-weight:700;margin-bottom:8px;">Protected dashboard</div>
-      <div class="small">Enter site password to unlock. Viewer creds are decrypted in-browser (read-only).</div>
-      <label>Site password</label><input id="pw" type="password" placeholder="Enter password"/>
-      <div class="btns"><button id="btnUnlock">Unlock</button></div>
-      <div id="unlockMsg" class="small"></div>
+    <div class="row">
+      <div class="card">
+        <div style="font-weight:700;margin-bottom:8px;">Protected dashboard</div>
+        <div class="small">Enter site password to unlock. Viewer creds are decrypted in-browser (read-only).</div>
+        <label>Site password</label><input id="pw" type="password" placeholder="Enter password"/>
+        <div class="btns"><button id="btnUnlock">Unlock</button></div>
+        <div id="unlockMsg" class="small"></div>
+      </div>
     </div>
   </div>
 
@@ -69,8 +116,8 @@
     <!-- PLOT TAB -->
     <section id="tab-plot">
       <div class="row">
-        <div class="card grow"><div class="plot"><canvas id="chart_ts"></canvas></div></div>
-        <div class="card half" id="nowPanel">
+        <div class="card"><div class="plot"><canvas id="chart_ts"></canvas></div></div>
+        <div class="card" id="nowPanel">
           <div style="font-weight:700;margin-bottom:8px;">Now</div>
           <div id="nowUnits" class="grid" style="margin-top:10px;grid-template-columns:1fr;gap:12px"></div>
           <div class="btns" style="margin-top:12px">
@@ -80,12 +127,12 @@
         </div>
       </div>
       <div class="row">
-        <div class="card grow">
+        <div class="card">
           <div style="font-weight:700;margin-bottom:8px;">GNSS Map</div>
           <div id="map"></div>
           <div class="small" style="margin-top:6px;">Basemap © OpenStreetMap, © CARTO — Dark Matter</div>
         </div>
-        <div class="card half">
+        <div class="card">
           <div style="font-weight:700;margin-bottom:8px;">SOG (knots)</div>
           <div class="plot" style="height:40vh;min-height:260px;"><canvas id="chart_sog"></canvas></div>
           <div class="small" id="sogInfo" style="margin-top:6px;"></div>
@@ -99,7 +146,7 @@
     <!-- SETTINGS TAB -->
     <section id="tab-settings" class="hidden">
       <div class="row">
-        <div class="card half">
+        <div class="card">
           <div style="font-weight:700;margin-bottom:8px;">Connection</div>
           <div class="grid">
             <div><label>Host</label><input id="host" value="afe7881f82fe42929e4a5370cddc7285.s1.eu.hivemq.cloud"/></div>
@@ -120,7 +167,7 @@
           </div>
         </div>
 
-        <div class="card half">
+        <div class="card">
           <div style="font-weight:700;margin-bottom:8px;">Windows, Peaks & GNSS</div>
           <div class="grid">
             <div style="grid-column:1/-1;">
@@ -150,12 +197,12 @@
           </div>
         </div>
 
-        <div class="card half">
+        <div class="card">
           <div style="font-weight:700;margin-bottom:8px;">Units</div>
           <div id="unitsList" class="grid" style="grid-template-columns:1fr;gap:8px"></div>
         </div>
 
-        <div class="card half">
+        <div class="card">
           <div style="font-weight:700;margin-bottom:8px;">Sync</div>
           <div class="grid">
             <div style="grid-column:1/-1">
@@ -170,7 +217,16 @@
           <div class="small" id="syncInfo" style="margin-top:8px;"></div>
         </div>
 
-        <div class="card grow"><div style="font-weight:700;margin-bottom:8px;">Logs</div><pre class="log" id="log"></pre></div>
+        <!-- NEW: Theme toggle card -->
+        <div class="card">
+          <div style="font-weight:700;margin-bottom:8px;">Theme</div>
+          <div class="small">Switch between dark and light appearance. Saved on this device.</div>
+          <div class="btns" style="margin-top:8px">
+            <button id="btnTheme">Switch to Light Mode</button>
+          </div>
+        </div>
+
+        <div class="card" style="grid-column:1/-1;"><div style="font-weight:700;margin-bottom:8px;">Logs</div><pre class="log" id="log"></pre></div>
       </div>
     </section>
   </div>
@@ -180,8 +236,31 @@ const APP_VERSION="v1.5.1 (2025-08-25)";
 const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9";
 const $=id=>document.getElementById(id);
 
+// ---- THEME ----
+const themeMeta=document.querySelector('meta[name="theme-color"]');
+function setTheme(mode){
+  const isLight = (mode==='light');
+  document.body.classList.toggle('light', isLight);
+  localStorage.setItem('ts_theme', isLight?'light':'dark');
+  // update PWA/browser bar color
+  themeMeta.setAttribute('content', isLight ? '#f7f9ff' : '#0b1220');
+  // button label
+  const b=$('btnTheme'); if(b){ b.textContent = isLight ? 'Switch to Dark Mode' : 'Switch to Light Mode'; }
+}
+(function initTheme(){
+  const saved = localStorage.getItem('ts_theme');
+  const prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+  setTheme(saved || (prefersLight ? 'light' : 'dark'));
+})();
+document.addEventListener('click', (e)=>{
+  if(e.target && e.target.id==='btnTheme'){
+    const next = document.body.classList.contains('light') ? 'dark' : 'light';
+    setTheme(next);
+  }
+});
+
 // ---- utils ----
-function log(s){const el=$('log');el.textContent+=s+"\\n";el.scrollTop=el.scrollHeight}
+function log(s){const el=$('log');el.textContent+=s+"\n";el.scrollTop=el.scrollHeight}
 function setStatus(t,ok=false){$('status').textContent=t;$('status').className=ok?'ok':'bad'}
 function meanStd(a){if(!a.length)return{mean:NaN,std:NaN};const m=a.reduce((x,y)=>x+y,0)/a.length;const v=a.reduce((x,y)=>x+(y-m)*(y-m),0)/a.length;return{mean:m,std:Math.sqrt(v)}}
 function fmt2(n){return n.toString().padStart(2,'0')}
@@ -351,7 +430,7 @@ function ensureUnit(unitId){
   };
 
   // Stats card (add Mean SOG)
-  const statsCol=document.createElement('div'); statsCol.className='card half unitStats'; statsCol.style.setProperty('--ucolor',color);
+  const statsCol=document.createElement('div'); statsCol.className='card unitStats'; statsCol.style.setProperty('--ucolor',color);
   statsCol.innerHTML=`<div style="font-weight:700;margin-bottom:8px;"><span class="unitTag" style="background:${color}">${unitId}</span> — window stats</div>
     <div class="grid">
       <div><div class="small">Mean Roll</div><div class="num" id="st-roll-mean-${unitId}">–</div></div>
