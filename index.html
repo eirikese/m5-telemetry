@@ -353,10 +353,14 @@ function makeDensityChart(ctx, label, color, xOverrides=null){
   };
   if(label==='Roll' || label==='Pitch') {
     xScale.min = -45; xScale.max = 45; xScale.ticks.stepSize = 10; xScale.ticks.callback = (v)=>String(Math.round(v));
+    xScale.ticks.maxRotation = 0;
+    xScale.ticks.minRotation = 0;
   } else if(label==='SOG') {
     xScale.ticks.stepSize = 0.5;
   } else if(label==='Freq') {
-    xScale.min = 0.1; xScale.max = 5; xScale.ticks.stepSize = 1; xScale.ticks.callback = (v)=>v.toFixed(1);
+    // No fixed min/max for frequency, just 1 Hz increments
+    xScale.ticks.stepSize = 1;
+    xScale.ticks.callback = (v)=>v.toFixed(1);
   }
   if(xOverrides){
     if(xOverrides.min!=null) xScale.min = xOverrides.min;
