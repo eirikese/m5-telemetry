@@ -38,7 +38,7 @@
   #map{height:40vh;min-height:260px;border-radius:12px;overflow:hidden}
   .leaflet-container{background:#0b1220}
 
-  /* Density (KDE) grid (now used on Plot tab) */
+  /* Density (KDE) grid on Plot tab */
   .dgrid{
     display:grid;
     grid-template-columns:1fr 1fr;
@@ -47,7 +47,7 @@
   }
   .dens-wrap{
     position:relative;
-    height:160px;
+    height:200px;
     border:1px solid var(--border);
     border-radius:8px;
     padding:6px 6px 4px 6px;
@@ -92,7 +92,6 @@
     <!-- PLOT TAB -->
     <section id="tab-plot">
       <div class="row">
-        <!-- non-stretch timeseries card -->
         <div class="card grow" style="align-self:flex-start">
           <div class="plot"><canvas id="chart_ts"></canvas></div>
         </div>
@@ -118,21 +117,21 @@
         </div>
       </div>
 
-      <!-- NEW: Combined distributions -->
+      <!-- Distributions by athlete -->
       <div class="row">
         <div class="card grow">
-          <div style="font-weight:700;margin-bottom:8px;">Distributions (window)</div>
+          <div style="font-weight:700;margin-bottom:8px;">Distributions by athlete (window)</div>
           <div class="dgrid">
             <div class="dens-wrap">
-              <div class="dens-head">Roll (°) — combined</div>
+              <div class="dens-head">Roll (°) — per athlete</div>
               <canvas id="dist-roll"></canvas>
             </div>
             <div class="dens-wrap">
-              <div class="dens-head">Pitch (°) — combined</div>
+              <div class="dens-head">Pitch (°) — per athlete</div>
               <canvas id="dist-pitch"></canvas>
             </div>
           </div>
-          <div class="tiny" style="margin-top:6px;">Aggregated across all visible units over the current analysis window.</div>
+          <div class="tiny" style="margin-top:6px;">Each colored curve is one athlete; X is −40°…0°…+40°, Y is % of that athlete’s peak density.</div>
         </div>
       </div>
     </section>
@@ -224,7 +223,7 @@ const APP_VERSION="v1.5.8";
 const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9";
 const $=id=>document.getElementById(id);
 
-// ---- utils ----
+// ------------- utilities -------------
 function log(s){const el=$('log');el.textContent+=s+"\\n";el.scrollTop=el.scrollHeight}
 function setStatus(t,ok=false){$('status').textContent=t;$('status').className=ok?'ok':'bad'}
 function meanStd(a){if(!a.length)return{mean:NaN,std:NaN};const m=a.reduce((x,y)=>x+y,0)/a.length;const v=a.reduce((x,y)=>x+(y-m)*(y-m),0)/a.length;return{mean:m,std:Math.sqrt(v)}}
@@ -232,8 +231,9 @@ function fmt2(n){return n.toString().padStart(2,'0')}
 const b64d=b64=>Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
 async function deriveKey(pw,salt){const enc=new TextEncoder();const mat=await crypto.subtle.importKey('raw',enc.encode(pw),'PBKDF2',false,['deriveKey']);return crypto.subtle.deriveKey({name:'PBKDF2',salt,iterations:120000,hash:'SHA-256'},mat,{name:'AES-GCM',length:256},false,['encrypt','decrypt'])}
 async function decryptCreds(pass,blob){const j=JSON.parse(atob(blob));const key=await deriveKey(pass,b64d(j.salt));const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64d(j.iv)},key,b64d(j.ct));return JSON.parse(new TextDecoder().decode(new Uint8Array(pt)))}
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 
-// GNSS guards
+// GNSS guard + math
 function coerceNum(v){
   if(v===null||v===undefined) return null;
   if(typeof v==='string'){
@@ -243,41 +243,36 @@ function coerceNum(v){
   const n=Number(v);
   return Number.isFinite(n)? n : null;
 }
-function validLatLon(lat,lon){
-  return lat!==null && lon!==null &&
-         Number.isFinite(lat) && Number.isFinite(lon) &&
-         Math.abs(lat)<=90 && Math.abs(lon)<=180;
-}
+function validLatLon(lat,lon){return lat!==null&&lon!==null&&Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180;}
 
 // geo helpers
-const Rm=6371000; // meters
+const Rm=6371000;
 function projLocalMeters(lat0,lon0,lat,lon){
   const toR=a=>a*Math.PI/180;
-  const x = (toR(lon)-toR(lon0)) * Math.cos(toR(lat0)) * Rm;
-  const y = (toR(lat)-toR(lat0)) * Rm;
+  const x=(toR(lon)-toR(lon0))*Math.cos(toR(lat0))*Rm;
+  const y=(toR(lat)-toR(lat0))*Rm;
   return {x,y};
 }
-function bearingFromV(vx,vy){ const toD=a=>a*180/Math.PI; let brg = toD(Math.atan2(vx, vy)); if(brg<0) brg+=360; return brg; }
-
+function bearingFromV(vx,vy){ const toD=a=>a*180/Math.PI; let brg=toD(Math.atan2(vx,vy)); if(brg<0) brg+=360; return brg; }
 const KNOTS_PER_MPS=1.94384449;
 
 // chart defaults
 Chart.defaults.color='#dfe7ff'; Chart.defaults.borderColor='#2a385a';
 
-// ---- state ----
+// ------------- state -------------
 let client=null, unlocked=false, viewer={user:null,pass:null};
 let chartTS=null, chartSOG=null;
 let map=null, mapInited=false, firstMapFixDone=false;
 let globalT0=null, syncLastMs=null;
-const COLORS=["#4cc9f0","#ffd166","#ef476f","#06d6a0"];
+const COLORS=["#4cc9f0","#ffd166","#ef476f","#06d6a0","#a78bfa","#7dd3fc","#fca5a5","#86efac"];
 const units={}, discoveredOrder=[];
 const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000, GNSS_KEEP=4000;
 
-// read smoothing window
+// windows
 const sogRange=$('sogWinRange'), sogNum=$('sogWin');
-function getSogWinSec(){ return Math.max(3, Math.min(30, parseInt(sogNum.value||'8',10))); }
-sogRange.addEventListener('input',e=>{sogNum.value=e.target.value;});
-sogNum.addEventListener('change',e=>{sogRange.value=e.target.value;});
+function getSogWinSec(){ return clamp(parseInt(sogNum.value||'8',10),3,30); }
+sogRange.addEventListener('input',e=>sogNum.value=e.target.value);
+sogNum.addEventListener('change',e=>sogRange.value=e.target.value);
 
 // sync
 let syncRefMode='auto';
@@ -288,186 +283,105 @@ function getRefUnit(){ if(syncRefMode!=='auto' && units[syncRefMode]) return syn
 // recording
 let recActive=false, recRows=[], recStartedAt=null;
 
-// DOM
+// DOM refs
 const nowUnits=$('nowUnits'), statsUnits=$('statsUnits'), unitsList=$('unitsList');
 
-// NEW: combined distribution charts
-let distCharts = { roll:null, pitch:null };
+// ------------- chart builders -------------
+function makeLineChart(ctx, yTitle){
+  return new Chart(ctx,{type:'line',data:{datasets:[]},options:{
+    animation:false,responsive:true,maintainAspectRatio:false,
+    scales:{x:{type:'linear',title:{display:true,text:'time (s from start)'},
+               ticks:{callback:v=>Number(v).toFixed(1)}},
+            y:{title:{display:true,text:yTitle}}},
+    plugins:{legend:{position:'bottom'}}
+  }});
+}
 
-// ---- charts & map ----
-function makeTimeseries(){
-  const ctx=document.getElementById('chart_ts').getContext('2d');
-  return new Chart(ctx,{type:'line',data:{datasets:[]},options:{
-    animation:false,responsive:true,maintainAspectRatio:false,
-    scales:{x:{type:'linear',title:{display:true,text:'time (s from start)'},ticks:{callback:v=>Number(v).toFixed(1)}},y:{title:{display:true,text:'degrees'}}},
-    plugins:{legend:{position:'bottom'}}
-  }});
-}
-function makeSOG(){
-  const ctx=document.getElementById('chart_sog').getContext('2d');
-  return new Chart(ctx,{type:'line',data:{datasets:[]},options:{
-    animation:false,responsive:true,maintainAspectRatio:false,
-    scales:{x:{type:'linear',title:{display:true,text:'time (s from start)'},ticks:{callback:v=>Number(v).toFixed(1)}},
-            y:{title:{display:true,text:'knots'}}},
-    plugins:{legend:{position:'bottom'}}
-  }});
-}
 function makeMap(){
-  map = L.map('map',{zoomControl:true});
+  map=L.map('map',{zoomControl:true});
   L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
-    attribution:'&copy; OSM & CARTO', subdomains:'abcd', maxZoom:20
-  }).addTo(map);
-  map.setView([0,0], 2);
-  mapInited=true;
+    attribution:'&copy; OSM & CARTO',subdomains:'abcd',maxZoom:20}).addTo(map);
+  map.setView([0,0],2); mapInited=true;
 }
-function fitMapIfFirst(lat,lon){ if(!firstMapFixDone){ map.setView([lat,lon], 15); firstMapFixDone=true; } }
+function fitMapIfFirst(lat,lon){ if(!firstMapFixDone){ map.setView([lat,lon],15); firstMapFixDone=true; } }
 
-// ---------- KDE helpers ----------
-function linspace(min,max,n){
-  const a=new Array(n); const step=(max-min)/(n-1);
-  for(let i=0;i<n;i++) a[i]=min+i*step;
-  return a;
-}
-function stddev(arr){
-  if(!arr.length) return 0;
-  const m = arr.reduce((s,v)=>s+v,0)/arr.length;
-  return Math.sqrt(arr.reduce((s,v)=>s+(v-m)*(v-m),0)/arr.length);
-}
-function kdeBandwidth(arr){
-  if(arr.length<2) return 1;
-  const s = stddev(arr);
-  return 1.06 * s * Math.pow(arr.length, -1/5);
-}
+// ---- KDE helpers (refactored) ----
+function linspace(min,max,n){ const a=new Array(n); const step=(max-min)/(n-1); for(let i=0;i<n;i++) a[i]=min+i*step; return a; }
+function stddev(arr){ if(!arr.length) return 0; const m=arr.reduce((s,v)=>s+v,0)/arr.length; return Math.sqrt(arr.reduce((s,v)=>s+(v-m)*(v-m),0)/arr.length); }
+function kdeBandwidth(arr){ if(arr.length<2) return 1; const s=stddev(arr); return 1.06*s*Math.pow(arr.length,-1/5); }
 function gaussian(u){ return Math.exp(-0.5*u*u)/Math.sqrt(2*Math.PI); }
-function kdeEstimate(values, gridCount=160, pad=0.05, fixedRange=null){
-  const x = (values||[]).filter(Number.isFinite);
-  if(x.length===0){
-    const [mn,mx]=fixedRange??[0,1];
-    return {xs:[mn,mx], ys:[0,0]};
+function kdeOnGrid(values, xs){
+  const x=(values||[]).filter(Number.isFinite);
+  const n=x.length; if(!n) return xs.map(_=>0);
+  let h=kdeBandwidth(x);
+  if(!Number.isFinite(h)||h<=1e-6){
+    const span=(Math.max(...x)-Math.min(...x))||1;
+    h=Math.max(span*0.05,1e-3);
   }
-  let min, max;
-  if(fixedRange){
-    [min,max]=fixedRange;
-  }else{
-    min = Math.min(...x); max = Math.max(...x);
-    if(min===max){ min-=0.5; max+=0.5; }
-    const range = max-min; min -= range*pad; max += range*pad;
-  }
-  const xs = linspace(min,max,gridCount);
-  let h = kdeBandwidth(x);
-  if(!Number.isFinite(h) || h<=1e-6){
-    const sp = (Math.max(...x)-Math.min(...x))||1;
-    h = Math.max(sp*0.05, 1e-3);
-  }
-  const invn = 1/x.length;
-  const ys = xs.map(x0=>{
+  const invnh=1/(n*h);
+  return xs.map(x0=>{
     let s=0;
-    for(let i=0;i<x.length;i++) s += gaussian((x0-x[i])/h);
-    return s*invn/h;
+    for(let i=0;i<n;i++) s+=gaussian((x0-x[i])/h);
+    return s*invnh;
   });
-  return {xs, ys};
 }
 
-/* ====== Density chart builder with y 0–110%, no y ticks, horizontal x ====== */
-function makeDensityChart(ctx, label, color, xOverrides=null){
-  let xScale = {
-    ticks:{
-      color:'#dfe7ff',
-      padding:6,
-      maxRotation:0,
-      minRotation:0,
-      autoSkip:true,
-      autoSkipPadding:8,
-      maxTicksLimit:10
-    },
-    grid:{color:'#2a385a', tickLength:4},
-    title:{display:false}
-  };
-
-  if(label==='Roll' || label==='Pitch') {
-    xScale.min = -45; xScale.max = 45;
-    xScale.ticks.stepSize = 10;
-    xScale.ticks.callback = (v)=>String(Math.round(v));
-  }
-
-  if(xOverrides){
-    if(xOverrides.min!=null) xScale.min = xOverrides.min;
-    if(xOverrides.max!=null) xScale.max = xOverrides.max;
-    if(xOverrides.stepSize!=null) xScale.ticks.stepSize = xOverrides.stepSize;
-    if(xOverrides.noDecimals){ xScale.ticks.callback = (v)=>String(Math.round(v)); }
-  }
-
+// density chart with multi-datasets (one per athlete)
+function makeDensityChartMulti(ctx, label, xMin=-40, xMax=40, step=10){
   return new Chart(ctx,{
     type:'line',
-    data:{labels:[], datasets:[{
-      label,
-      data:[],
-      borderColor:color,
-      backgroundColor:color+'22',
-      fill:true,
-      pointRadius:0,
-      tension:0.25,
-      borderWidth:2
-    }]},
+    data:{labels:[], datasets:[]},
     options:{
       responsive:true, maintainAspectRatio:false, animation:false,
-      layout:{ padding:{ left:10, right:10, bottom:8, top:4 } },
+      layout:{padding:{left:10,right:10,bottom:8,top:4}},
       scales:{
-        x: xScale,
+        x:{
+          min:xMin, max:xMax,
+          grid:{color:'#2a385a',tickLength:4},
+          ticks:{
+            color:'#dfe7ff', padding:6,
+            maxRotation:0,minRotation:0,
+            autoSkip:true, autoSkipPadding:8, maxTicksLimit:Math.floor((xMax-xMin)/step)+1,
+            stepSize:step, callback:(v)=>String(Math.round(v))
+          },
+          title:{display:false}
+        },
         y:{
           min:0, max:110,
-          grid:{color:'#2a385a', tickLength:4},
+          grid:{color:'#2a385a',tickLength:4},
           ticks:{display:false},
           title:{display:false}
         }
       },
       plugins:{
-        legend:{display:false},
-        tooltip:{mode:'index',intersect:false,
-          callbacks:{label:(ctx)=> ` ${Math.round(ctx.parsed.y)}%`}}
-      }
+        legend:{position:'bottom',labels:{boxWidth:10,boxHeight:10,usePointStyle:true,pointStyle:'line'}},
+        tooltip:{mode:'index',intersect:false,callbacks:{label:(ctx)=>`${ctx.dataset.label}: ${Math.round(ctx.parsed.y)}%`}}
+      },
+      elements:{line:{tension:0.25,borderWidth:2}, point:{radius:0}}
     }
   });
 }
 
-/* ====== updateDensityChart: supports fixedRange + step rounding ====== */
-function updateDensityChart(chart, values, opts={}){
-  function niceRange(min, max, step, pad=0.05){
-    if(!Number.isFinite(min) || !Number.isFinite(max)) return [0,1];
-    const span = max - min || 1;
-    min -= span * pad; max += span * pad;
-    return [ Math.floor(min/step)*step, Math.ceil(max/step)*step ];
-  }
-
-  const step = opts.roundStep ?? null;
-
-  let range = null;
-  if (opts.fixedRange
-      && Number.isFinite(opts.fixedRange[0])
-      && Number.isFinite(opts.fixedRange[1])) {
-    range = opts.fixedRange;
-  } else if (step && values && values.length) {
-    const vmin = Math.min(...values), vmax = Math.max(...values);
-    range = niceRange(vmin, vmax, step, 0.05);
-  }
-
-  const est = kdeEstimate(values, 160, 0.05, range);
-
-  if (chart?.options?.scales?.x?.ticks && step){
-    chart.options.scales.x.ticks.stepSize = step;
-    chart.options.scales.x.ticks.maxRotation = 0;
-    chart.options.scales.x.ticks.minRotation = 0;
-    chart.options.scales.x.ticks.padding = 6;
-  }
-
-  const maxY = Math.max(...est.ys, 0);
-  const ysPct = maxY>0 ? est.ys.map(y=> (y/maxY)*100 ) : est.ys.map(_=>0);
-  chart.data.labels = est.xs;
-  chart.data.datasets[0].data = ysPct;
-  chart.update('none');
+// upsert dataset for a unitId, color-coded
+function upsertDistDataset(chart, map, unitId, color){
+  if(map[unitId]!=null) return map[unitId];
+  const ds={label:unitId,data:[],borderColor:color,backgroundColor:color+'22',fill:true};
+  chart.data.datasets.push(ds);
+  const idx=chart.data.datasets.length-1;
+  map[unitId]=idx;
+  return idx;
 }
 
-// ---- units ----
+// ------------- distributions state -------------
+const DIST_RANGE={min:-40,max:40,step:10,gridCnt:161};
+let distCharts={roll:null,pitch:null,xs:null};
+let distIndexes={roll:{},pitch:{}};
+
+// ------------- timeseries & SOG -------------
+function makeTimeseries(){ return makeLineChart(document.getElementById('chart_ts').getContext('2d'),'degrees'); }
+function makeSOG(){ return makeLineChart(document.getElementById('chart_sog').getContext('2d'),'knots'); }
+
+// ------------- unit management -------------
 function ensureUnit(unitId){
   if(units[unitId]) return units[unitId];
   const color=COLORS[discoveredOrder.length%COLORS.length]; discoveredOrder.push(unitId);
@@ -477,14 +391,10 @@ function ensureUnit(unitId){
     times:[], roll:[], pitch:[],
     seriesRoll:[], seriesPitch:[],
     seriesRollPk:[], seriesPitchPk:[],
-    gnssLatLngs:[],
-    lat0:null, lon0:null, posBuf:[],
-    sogEMA:null, heading:null,
-    sogTimes:[], sogVals:[], sogSeries:[],
-    idxRoll:null, idxPitch:null, idxRollPk:null, idxPitchPk:null,
-    idxSOG:null,
-    poly:null, marker:null,
-    nowElems:{}, statsElems:{},
+    gnssLatLngs:[], lat0:null, lon0:null, posBuf:[],
+    sogEMA:null, heading:null, sogTimes:[], sogVals:[], sogSeries:[],
+    idxRoll:null, idxPitch:null, idxRollPk:null, idxPitchPk:null, idxSOG:null,
+    poly:null, marker:null, nowElems:{}, statsElems:{},
     lastRollHz:NaN,lastRollAt:0,lastPitchHz:NaN,lastPitchAt:0
   };
 
@@ -505,9 +415,9 @@ function ensureUnit(unitId){
   chartSOG.data.datasets.push(sogDs); u.idxSOG=chartSOG.data.datasets.length-1;
 
   // map layers
-  u.poly = L.polyline([], {color, weight:3, opacity:0.95}).addTo(map);
-  u.marker = L.circleMarker([0,0], {radius:6, color, fillColor:color, fillOpacity:1}).addTo(map);
-  u.poly.setStyle({opacity:0}); u.marker.setStyle({opacity:0, fillOpacity:0});
+  u.poly=L.polyline([], {color,weight:3,opacity:0.95}).addTo(map);
+  u.marker=L.circleMarker([0,0], {radius:6,color,fillColor:color,fillOpacity:1}).addTo(map);
+  u.poly.setStyle({opacity:0}); u.marker.setStyle({opacity:0,fillOpacity:0});
 
   // Now card
   const nowCard=document.createElement('div'); nowCard.className='unitNow uNums'; nowCard.style.setProperty('--ucolor',color);
@@ -522,12 +432,10 @@ function ensureUnit(unitId){
       <div style="grid-column:1/-1"><div class="small">Lat, Lon</div><div class="small mono" id="now-ll-${unitId}">–</div></div>
     </div>`;
   nowUnits.appendChild(nowCard);
-  u.nowElems={
-    roll:$(`now-roll-${unitId}`), pitch:$(`now-pitch-${unitId}`), hz:$(`now-hz-${unitId}`),
-    sog:$(`now-sog-${unitId}`), sogMean:$(`now-sogmean-${unitId}`), hdg:$(`now-hdg-${unitId}`), ll:$(`now-ll-${unitId}`)
-  };
+  u.nowElems={ roll:$(`now-roll-${unitId}`), pitch:$(`now-pitch-${unitId}`), hz:$(`now-hz-${unitId}`),
+               sog:$(`now-sog-${unitId}`), sogMean:$(`now-sogmean-${unitId}`), hdg:$(`now-hdg-${unitId}`), ll:$(`now-ll-${unitId}`) };
 
-  // Stats card (no per-unit density charts anymore)
+  // Stats card
   const statsCol=document.createElement('div'); statsCol.className='card half unitStats'; statsCol.style.setProperty('--ucolor',color);
   statsCol.innerHTML=`<div style="font-weight:700;margin-bottom:8px;"><span class="unitTag" style="background:${color}">${unitId}</span> — window stats</div>
     <div class="grid">
@@ -542,15 +450,13 @@ function ensureUnit(unitId){
       <div style="grid-column:1/-1"><div class="small">Mean SOG (kt)</div><div class="num" id="st-sog-mean-${unitId}">–</div></div>
     </div>`;
   statsUnits.appendChild(statsCol);
-  u.statsElems={
-    rMean:$(`st-roll-mean-${unitId}`), rStd:$(`st-roll-std-${unitId}`),
-    pMean:$(`st-pitch-mean-${unitId}`), pStd:$(`st-pitch-std-${unitId}`),
-    rPk:$(`st-roll-pk-${unitId}`), pPk:$(`st-pitch-pk-${unitId}`),
-    rHz:$(`st-roll-hz-${unitId}`), pHz:$(`st-pitch-hz-${unitId}`),
-    sogMean:$(`st-sog-mean-${unitId}`)
-  };
+  u.statsElems={ rMean:$(`st-roll-mean-${unitId}`), rStd:$(`st-roll-std-${unitId}`),
+                 pMean:$(`st-pitch-mean-${unitId}`), pStd:$(`st-pitch-std-${unitId}`),
+                 rPk:$(`st-roll-pk-${unitId}`), pPk:$(`st-pitch-pk-${unitId}`),
+                 rHz:$(`st-roll-hz-${unitId}`), pHz:$(`st-pitch-hz-${unitId}`),
+                 sogMean:$(`st-sog-mean-${unitId}`) };
 
-  // settings checkbox
+  // settings checkbox (also affects distribution visibility)
   const row=document.createElement('div');
   row.innerHTML=`<label style="display:flex;gap:8px;align-items:center">
     <input type="checkbox" id="chk-${unitId}" checked/>
@@ -561,17 +467,24 @@ function ensureUnit(unitId){
     u.visible=e.target.checked;
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=!u.visible);
     chartSOG.data.datasets[u.idxSOG].hidden=!u.visible;
+
+    // distributions: toggle dataset visibility if exists
+    const rIdx=distIndexes.roll[unitId]; if(rIdx!=null) distCharts.roll.data.datasets[rIdx].hidden=!u.visible;
+    const pIdx=distIndexes.pitch[unitId]; if(pIdx!=null) distCharts.pitch.data.datasets[pIdx].hidden=!u.visible;
+
     if(u.visible){
       if(!map.hasLayer(u.poly)) u.poly.addTo(map);
       if(!map.hasLayer(u.marker)) u.marker.addTo(map);
-      const hasFix = u.gnssLatLngs.length>0;
-      u.poly.setStyle({opacity: hasFix?0.95:0});
-      u.marker.setStyle({opacity: hasFix?1:0, fillOpacity: hasFix?1:0});
+      const hasFix=u.gnssLatLngs.length>0;
+      u.poly.setStyle({opacity:hasFix?0.95:0});
+      u.marker.setStyle({opacity:hasFix?1:0,fillOpacity:hasFix?1:0});
     }else{
       if(map.hasLayer(u.poly)) map.removeLayer(u.poly);
       if(map.hasLayer(u.marker)) map.removeLayer(u.marker);
     }
     chartTS.update('none'); chartSOG.update('none');
+    if(distCharts.roll) distCharts.roll.update('none');
+    if(distCharts.pitch) distCharts.pitch.update('none');
   });
 
   if(getRefUnit()===unitId && globalT0===null) resetSyncSeries();
@@ -579,7 +492,30 @@ function ensureUnit(unitId){
   return u;
 }
 
-// nearest index
+// ------------- helpers: time windows, axes, pruning -------------
+const viewRange=$('viewSecRange'), viewNum=$('viewSec'); let currentViewSec=parseInt(viewNum.value||'10',10);
+function applyViewWindow(val){ currentViewSec=clamp(parseInt(val||'10',10),5,600); viewRange.value=currentViewSec; viewNum.value=currentViewSec; updateAxisRange(); }
+viewRange.addEventListener('input',e=>applyViewWindow(e.target.value));
+viewNum.addEventListener('change',e=>applyViewWindow(e.target.value));
+
+const winRange=$('winSecRange'), winNum=$('winSec');
+function applyWindow(val){ const v=clamp(parseInt(val||'10',10),5,600); winRange.value=v; winNum.value=v; recomputePeaksAndStatsAll(); chartTS.update('none'); chartSOG.update('none'); }
+winRange.addEventListener('input',e=>applyWindow(e.target.value));
+winNum.addEventListener('change',e=>applyWindow(e.target.value));
+
+function updateAxisRange(){
+  if(globalT0===null){
+    if(chartTS){chartTS.options.scales.x.min=0; chartTS.options.scales.x.max=currentViewSec; chartTS.update('none');}
+    if(chartSOG){chartSOG.options.scales.x.min=0; chartSOG.options.scales.x.max=currentViewSec; chartSOG.update('none');}
+    return;
+  }
+  const last=syncLastMs||Date.now();
+  const nowSec=(last-globalT0)/1000;
+  const xmin=Math.max(0,nowSec-currentViewSec), xmax=Math.max(currentViewSec,nowSec);
+  if(chartTS){chartTS.options.scales.x.min=Number(xmin.toFixed(1)); chartTS.options.scales.x.max=Number(xmax.toFixed(1)); chartTS.update('none');}
+  if(chartSOG){chartSOG.options.scales.x.min=Number(xmin.toFixed(1)); chartSOG.options.scales.x.max=Number(xmax.toFixed(1)); chartSOG.update('none');}
+}
+
 function nearestIdx(times,target){
   if(!times.length) return -1;
   let i=times.length-1;
@@ -589,41 +525,6 @@ function nearestIdx(times,target){
   return (d1<=d0)?c1:c0;
 }
 
-// peaks
-function detectPeaks(vals,times,minDistMs,minProm){
-  const n=vals.length; if(n<3) return [];
-  const peaks=[]; let lastT=-1e18;
-  for(let i=1;i<n-1;i++){
-    const v=vals[i]; if(v<=vals[i-1]||v<=vals[i+1]) continue;
-    const w=5, i0=Math.max(0,i-w), i1=Math.min(n-1,i+w);
-    let base=vals[i0]; for(let j=i0+1;j<=i1;j++) base=Math.min(base,vals[j]);
-    if(v-base<minProm) continue;
-    const t=times[i]; if(t-lastT<minDistMs) continue;
-    peaks.push({t,v,i}); lastT=t;
-  } return peaks;
-}
-
-// windows & axes
-const viewRange=$('viewSecRange'), viewNum=$('viewSec'); let currentViewSec=parseInt(viewNum.value||'10',10);
-function applyViewWindow(val){currentViewSec=Math.max(5,Math.min(600,parseInt(val||'10',10)));viewRange.value=currentViewSec;viewNum.value=currentViewSec;updateAxisRange()}
-viewRange.addEventListener('input',e=>applyViewWindow(e.target.value)); viewNum.addEventListener('change',e=>applyViewWindow(e.target.value));
-
-const winRange=$('winSecRange'), winNum=$('winSec');
-function applyWindow(val){const v=Math.max(5,Math.min(600,parseInt(val||'10',10))); winRange.value=v; winNum.value=v; recomputePeaksAndStatsAll(); chartTS.update('none'); chartSOG.update('none');}
-winRange.addEventListener('input',e=>applyWindow(e.target.value)); winNum.addEventListener('change',e=>applyWindow(e.target.value));
-
-function updateAxisRange(){
-  if(globalT0===null){ if(chartTS){chartTS.options.scales.x.min=0;chartTS.options.scales.x.max=currentViewSec;chartTS.update('none');}
-                        if(chartSOG){chartSOG.options.scales.x.min=0;chartSOG.options.scales.x.max=currentViewSec;chartSOG.update('none');}
-                        return; }
-  const last = syncLastMs || Date.now();
-  const nowSec=(last-globalT0)/1000;
-  const xmin=Math.max(0,nowSec-currentViewSec), xmax=Math.max(currentViewSec,nowSec);
-  if(chartTS){chartTS.options.scales.x.min=Number(xmin.toFixed(1)); chartTS.options.scales.x.max=Number(xmax.toFixed(1)); chartTS.update('none');}
-  if(chartSOG){chartSOG.options.scales.x.min=Number(xmin.toFixed(1)); chartSOG.options.scales.x.max=Number(xmax.toFixed(1)); chartSOG.update('none');}
-}
-
-// prune old
 function pruneOld(nowMs){
   const keepMs=Math.max(parseFloat(winNum.value||'10')*1000,MAX_KEEP_SEC*1000);
   for(const id of Object.keys(units)){
@@ -637,19 +538,78 @@ function pruneOld(nowMs){
   }
 }
 
-// stats + KDE updates (combined only)
+// ------------- peaks & stats + distributions update -------------
+function detectPeaks(vals,times,minDistMs,minProm){
+  const n=vals.length; if(n<3) return [];
+  const peaks=[]; let lastT=-1e18;
+  for(let i=1;i<n-1;i++){
+    const v=vals[i]; if(v<=vals[i-1]||v<=vals[i+1]) continue;
+    const w=5,i0=Math.max(0,i-w),i1=Math.min(n-1,i+w);
+    let base=vals[i0]; for(let j=i0+1;j<=i1;j++) base=Math.min(base,vals[j]);
+    if(v-base<minProm) continue;
+    const t=times[i]; if(t-lastT<minDistMs) continue;
+    peaks.push({t,v,i}); lastT=t;
+  }
+  return peaks;
+}
+
+function getWindowForUnit(u, winSec){
+  if(!u.times.length) return {tWin:[], rWin:[], pWin:[], startMs:NaN, nowU:NaN};
+  const nowU=u.times[u.times.length-1], startMs=nowU - winSec*1000;
+  let s=0; while(s<u.times.length && u.times[s]<startMs) s++;
+  return { tWin:u.times.slice(s), rWin:u.roll.slice(s), pWin:u.pitch.slice(s), startMs, nowU };
+}
+
+// unified per-athlete distributions update (two charts: roll & pitch)
+function updateUnifiedDistributions(){
+  if(!distCharts.roll||!distCharts.pitch) return;
+  const winSec=parseFloat(winNum.value||'10');
+  if(!distCharts.xs){ distCharts.xs=linspace(DIST_RANGE.min,DIST_RANGE.max,DIST_RANGE.gridCnt); distCharts.roll.data.labels=distCharts.xs; distCharts.pitch.data.labels=distCharts.xs; }
+
+  // mark all datasets as hidden initially; we'll unhide those with data
+  for(const ds of distCharts.roll.data.datasets){ ds.hidden=true; ds.data.length=0; }
+  for(const ds of distCharts.pitch.data.datasets){ ds.hidden=true; ds.data.length=0; }
+
+  for(const id of Object.keys(units)){
+    const u=units[id];
+    // upsert datasets so legends/colors are stable
+    const rIdx=upsertDistDataset(distCharts.roll,  distIndexes.roll,  id, u.color);
+    const pIdx=upsertDistDataset(distCharts.pitch, distIndexes.pitch, id, u.color);
+
+    if(!u.visible || !u.times.length) { distCharts.roll.data.datasets[rIdx].hidden=true; distCharts.pitch.data.datasets[pIdx].hidden=true; continue; }
+
+    const {rWin,pWin}=getWindowForUnit(u,winSec);
+    if(rWin.length){
+      let ys=kdeOnGrid(rWin,distCharts.xs);
+      const maxY=Math.max(...ys,0);
+      ys = maxY>0 ? ys.map(y=>y/maxY*100) : ys.map(_=>0);
+      distCharts.roll.data.datasets[rIdx].data=ys;
+      distCharts.roll.data.datasets[rIdx].hidden=false;
+    } else {
+      distCharts.roll.data.datasets[rIdx].hidden=true;
+    }
+
+    if(pWin.length){
+      let ys=kdeOnGrid(pWin,distCharts.xs);
+      const maxY=Math.max(...ys,0);
+      ys = maxY>0 ? ys.map(y=>y/maxY*100) : ys.map(_=>0);
+      distCharts.pitch.data.datasets[pIdx].data=ys;
+      distCharts.pitch.data.datasets[pIdx].hidden=false;
+    } else {
+      distCharts.pitch.data.datasets[pIdx].hidden=true;
+    }
+  }
+
+  distCharts.roll.update('none');
+  distCharts.pitch.update('none');
+}
+
 function recomputePeaksAndStatsAll(){
   const winSec=parseFloat(winNum.value||'10'), minDist=parseFloat($('minDist').value||'300'), minProm=parseFloat($('minProm').value||'5.0');
 
-  const aggRoll = [];
-  const aggPitch = [];
-
   for(const id of Object.keys(units)){
     const u=units[id]; if(!u.times.length) continue;
-
-    const nowU=u.times[u.times.length-1]; const startMs=nowU - winSec*1000;
-    let s=0; while(s<u.times.length && u.times[s]<startMs) s++;
-    const tWin=u.times.slice(s), rWin=u.roll.slice(s), pWin=u.pitch.slice(s);
+    const {tWin,rWin,pWin,nowU,startMs}=getWindowForUnit(u,winSec);
 
     const rPeaks=detectPeaks(rWin,tWin,minDist,minProm);
     const pPeaks=detectPeaks(pWin,tWin,minDist,minProm);
@@ -658,7 +618,7 @@ function recomputePeaksAndStatsAll(){
     for(const pk of rPeaks){u.seriesRollPk.push({x:(pk.t-globalT0)/1000,y:pk.v});}
     for(const pk of pPeaks){u.seriesPitchPk.push({x:(pk.t-globalT0)/1000,y:pk.v});}
 
-    function freq(peaks){ if(peaks.length<2) return NaN; let s=0,c=0; for(let i=1;i<peaks.length;i++){const dt=(peaks[i].t-peaks[i-1].t)/1000; if(dt>0){s+=dt;c++;}} return c?1/(s/c):NaN; }
+    const freq=(peaks)=>{ if(peaks.length<2) return NaN; let s=0,c=0; for(let i=1;i<peaks.length;i++){const dt=(peaks[i].t-peaks[i-1].t)/1000; if(dt>0){s+=dt;c++;}} return c?1/(s/c):NaN; };
     const fR=freq(rPeaks), fP=freq(pPeaks);
     if(Number.isFinite(fR)){u.lastRollHz=fR;u.lastRollAt=nowU;}
     if(Number.isFinite(fP)){u.lastPitchHz=fP;u.lastPitchAt=nowU;}
@@ -684,24 +644,17 @@ function recomputePeaksAndStatsAll(){
 
     const fNow = Number.isFinite(fShowR)?fShowR:(Number.isFinite(fShowP)?fShowP:NaN);
     if(u.nowElems.hz) u.nowElems.hz.textContent = isFinite(fNow)? fNow.toFixed(2):'–';
-
-    // accumulate for combined distributions (visible units only)
-    if(u.visible){
-      for(let i=0;i<rWin.length;i++){ const rv=rWin[i]; if(Number.isFinite(rv)) aggRoll.push(rv); }
-      for(let i=0;i<pWin.length;i++){ const pv=pWin[i]; if(Number.isFinite(pv)) aggPitch.push(pv); }
-    }
   }
 
-  // update combined charts
-  if(distCharts.roll)  updateDensityChart(distCharts.roll,  aggRoll,  {fixedRange:[-45,45], roundStep:10});
-  if(distCharts.pitch) updateDensityChart(distCharts.pitch, aggPitch, {fixedRange:[-45,45], roundStep:10});
+  // update the per-athlete distributions (roll & pitch)
+  updateUnifiedDistributions();
 }
 
-// ---- synced plotting (arrival-time ZOH) ----
+// ------------- sync plotting -------------
 function resetSyncSeries(){
   syncLastMs=null;
   let tfirst=null;
-  for(const id of Object.keys(units)){ if(units[id].times.length){ tfirst = (tfirst===null)? units[id].times[0] : Math.min(tfirst, units[id].times[0]); } }
+  for(const id of Object.keys(units)){ if(units[id].times.length){ tfirst=(tfirst===null)?units[id].times[0]:Math.min(tfirst,units[id].times[0]); } }
   if(tfirst!==null) globalT0=tfirst;
   for(const id of Object.keys(units)){ units[id].seriesRoll.length=0; units[id].seriesPitch.length=0; }
   chartTS.update('none'); updateAxisRange(); log(`sync reset → ref=${getRefUnit()||'none'}`);
@@ -712,18 +665,16 @@ function appendSyncedPoint(t_ref){
   const x=(t_ref-globalT0)/1000;
 
   for(const id of Object.keys(units)){
-    const u=units[id];
-    const idx=nearestIdx(u.times,t_ref);
+    const u=units[id]; const idx=nearestIdx(u.times,t_ref);
     let yR=null,yP=null;
-    if(idx>=0 && Math.abs(u.times[idx]-t_ref)<=tol){
-      yR=u.roll[idx]; yP=u.pitch[idx];
-    } else {
-      const lastPlottedR = u.seriesRoll.length ? u.seriesRoll[u.seriesRoll.length-1].y : null;
-      const lastPlottedP = u.seriesPitch.length? u.seriesPitch[u.seriesPitch.length-1].y: null;
-      const lastRawR = u.roll.length ? u.roll[u.roll.length-1] : null;
-      const lastRawP = u.pitch.length? u.pitch[u.pitch.length-1]: null;
-      yR = (lastPlottedR!=null) ? lastPlottedR : (lastRawR!=null ? lastRawR : null);
-      yP = (lastPlottedP!=null) ? lastPlottedP : (lastRawP!=null ? lastRawP : null);
+    if(idx>=0 && Math.abs(u.times[idx]-t_ref)<=tol){ yR=u.roll[idx]; yP=u.pitch[idx]; }
+    else {
+      const lastR=u.seriesRoll.length?u.seriesRoll[u.seriesRoll.length-1].y:null;
+      const lastP=u.seriesPitch.length?u.seriesPitch[u.seriesPitch.length-1].y:null;
+      const rawR=u.roll.length?u.roll[u.roll.length-1]:null;
+      const rawP=u.pitch.length?u.pitch[u.pitch.length-1]:null;
+      yR=(lastR!=null)?lastR:(rawR!=null?rawR:null);
+      yP=(lastP!=null)?lastP:(rawP!=null?rawP:null);
       if(yR===null && yP===null) continue;
     }
     u.seriesRoll.push({x,y:yR});
@@ -737,36 +688,35 @@ function appendSyncedPoint(t_ref){
   chartTS.update('none'); chartSOG.update('none');
 }
 
-// ---- velocity from regression over a sliding window ----
-function updateVelocityFromWindow(u, t, lat, lon){
+// ------------- velocity from regression over a sliding window -------------
+function updateVelocityFromWindow(u,t,lat,lon){
   if(u.lat0===null||u.lon0===null){ u.lat0=lat; u.lon0=lon; }
-  const p = projLocalMeters(u.lat0,u.lon0,lat,lon);
+  const p=projLocalMeters(u.lat0,u.lon0,lat,lon);
   u.posBuf.push({t,lat,lon,x:p.x,y:p.y});
-  const winMs = getSogWinSec()*1000;
+  const winMs=getSogWinSec()*1000;
   while(u.posBuf.length && u.posBuf[0].t < t - winMs){ u.posBuf.shift(); }
   if(u.posBuf.length<2) return;
 
-  const times = u.posBuf.map(pt => (pt.t - u.posBuf[0].t)/1000);
-  const xs = u.posBuf.map(pt => pt.x), ys = u.posBuf.map(pt => pt.y);
-  const n = times.length;
+  const times=u.posBuf.map(pt=>(pt.t-u.posBuf[0].t)/1000);
+  const xs=u.posBuf.map(pt=>pt.x), ys=u.posBuf.map(pt=>pt.y);
+  const n=times.length;
   let mt=0,mx=0,my=0; for(let i=0;i<n;i++){ mt+=times[i]; mx+=xs[i]; my+=ys[i]; }
   mt/=n; mx/=n; my/=n;
   let sTT=0,sTX=0,sTY=0;
   for(let i=0;i<n;i++){ const dt=times[i]-mt; sTT+=dt*dt; sTX+=dt*(xs[i]-mx); sTY+=dt*(ys[i]-my); }
   if(sTT<=0) return;
-  const vx = sTX/sTT; const vy = sTY/sTT;
-  const spd_mps = Math.hypot(vx,vy);
-  const spd_kt = spd_mps * KNOTS_PER_MPS;
+  const vx=sTX/sTT, vy=sTY/sTT;
+  const spd_mps=Math.hypot(vx,vy), spd_kt=spd_mps*KNOTS_PER_MPS;
 
-  const alpha = 0.2;
-  u.sogEMA = (u.sogEMA==null) ? spd_kt : (u.sogEMA*(1-alpha) + spd_kt*alpha);
-  u.heading = (u.sogEMA>2) ? bearingFromV(vx,vy) : null;
+  const alpha=0.2;
+  u.sogEMA=(u.sogEMA==null)?spd_kt:(u.sogEMA*(1-alpha)+spd_kt*alpha);
+  u.heading=(u.sogEMA>2)?bearingFromV(vx,vy):null;
 
   const xPlot=(t-globalT0)/1000;
   u.sogTimes.push(t); u.sogVals.push(u.sogEMA); u.sogSeries.push({x:xPlot,y:u.sogEMA});
 }
 
-// ---- Recording ----
+// ------------- Recording -------------
 const btnRecord=$('btnRecord'), recInfo=$('recInfo');
 btnRecord.addEventListener('click',()=>{ if(!recActive){ startRec(); } else { stopRec(); } });
 function startRec(){ recActive=true; recRows=[]; recStartedAt=Date.now(); btnRecord.textContent="Stop & Save"; btnRecord.classList.add('recording','blink'); if(window._rt) clearInterval(window._rt); window._rt=setInterval(()=>{recInfo.textContent=`Recording… ${((Date.now()-recStartedAt)/1000).toFixed(1)} s`;},200); log("recording started"); }
@@ -790,7 +740,7 @@ function stopRec(){
   recInfo.textContent=`Saved ${recRows.length} samples to ${fname}`; log(`saved CSV (${recRows.length} rows)`);
 }
 
-// ---- Tabs ----
+// ------------- Tabs -------------
 document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
   const name=b.dataset.tab; ['plot','stats','settings'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
   document.getElementById('tab-'+name).classList.remove('hidden');
@@ -801,7 +751,7 @@ document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
   }
 }));
 
-// ---- Unlock & connect ----
+// ------------- Unlock & connect -------------
 document.getElementById('btnUnlock').addEventListener('click',async ()=>{
   const pwd=document.getElementById('pw').value; if(!pwd){document.getElementById('unlockMsg').textContent='Enter a password.';return;}
   if(!ENCRYPTED_CREDS||ENCRYPTED_CREDS==='PASTE_CIPHERTEXT_HERE'){ document.getElementById('unlockMsg').textContent='No encrypted creds embedded.'; return; }
@@ -810,14 +760,16 @@ document.getElementById('btnUnlock').addEventListener('click',async ()=>{
     viewer.user=creds.user; viewer.pass=creds.pass; unlocked=true;
     document.getElementById('gate').classList.add('hidden'); document.getElementById('app').classList.remove('hidden');
     document.getElementById('cid').value='web-'+Math.random().toString(16).slice(2,10);
+
     chartTS=makeTimeseries(); chartSOG=makeSOG(); makeMap();
 
-    // init combined distribution charts
+    // init multi-dataset distribution charts with fixed ±40° x-range
     (function initUnifiedDistributions(){
-      const rctx = document.getElementById('dist-roll').getContext('2d');
-      const pctx = document.getElementById('dist-pitch').getContext('2d');
-      distCharts.roll  = makeDensityChart(rctx, 'Roll',  '#4cc9f0', {min:-45, max:45, stepSize:10, noDecimals:true});
-      distCharts.pitch = makeDensityChart(pctx, 'Pitch', '#ffd166', {min:-45, max:45, stepSize:10, noDecimals:true});
+      const rctx=document.getElementById('dist-roll').getContext('2d');
+      const pctx=document.getElementById('dist-pitch').getContext('2d');
+      distCharts.roll = makeDensityChartMulti(rctx,'Roll',DIST_RANGE.min,DIST_RANGE.max,DIST_RANGE.step);
+      distCharts.pitch= makeDensityChartMulti(pctx,'Pitch',DIST_RANGE.min,DIST_RANGE.max,DIST_RANGE.step);
+      distCharts.xs=null; // grid will be built on first update
     })();
 
     setStatus('unlocked — not connected',false);
@@ -841,7 +793,7 @@ function connect(){
   client.on('error',e=>{setStatus('error',false);log('error: '+(e?.message||e));});
   client.on('message',(topic,payload)=>{
     try{
-      const t = Date.now();
+      const t=Date.now();
       let txt; try{txt=new TextDecoder().decode(payload);}catch{txt=payload.toString?payload.toString():'';}
       const d=JSON.parse(txt);
       let unit=d.unit_id; if(!unit){const m=topic.split('/'); if(m.length>=3) unit=m[1];}
@@ -863,39 +815,34 @@ function connect(){
       // GNSS
       const lat=coerceNum(d.lat), lon=coerceNum(d.lon);
       const hasFix=validLatLon(lat,lon);
-
       if(hasFix){
         u.gnssLatLngs.push([lat,lon]);
         if(u.gnssLatLngs.length>GNSS_KEEP) u.gnssLatLngs.shift();
         u.poly.setLatLngs(u.gnssLatLngs);
-        u.poly.setStyle({opacity: u.visible?0.95:0});
+        u.poly.setStyle({opacity:u.visible?0.95:0});
         u.marker.setLatLng([lat,lon]);
-        u.marker.setStyle({opacity: u.visible?1:0, fillOpacity: u.visible?1:0});
+        u.marker.setStyle({opacity:u.visible?1:0,fillOpacity:u.visible?1:0});
         if(!firstMapFixDone) fitMapIfFirst(lat,lon);
-        if(u.nowElems.ll) u.nowElems.ll.textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+        if(u.nowElems.ll) u.nowElems.ll.textContent=`${lat.toFixed(6)}, ${lon.toFixed(6)}`;
 
-        // velocity by regression over window
-        updateVelocityFromWindow(u, t, lat, lon);
-        if(u.nowElems.sog) u.nowElems.sog.textContent = (u.sogEMA!=null)? u.sogEMA.toFixed(2) : '–';
-        if(u.nowElems.hdg) u.nowElems.hdg.textContent = (u.heading!=null)? u.heading.toFixed(0) : '–';
-      } else {
-        if(u.nowElems.ll) u.nowElems.ll.textContent = '–';
-      }
+        updateVelocityFromWindow(u,t,lat,lon);
+        if(u.nowElems.sog) u.nowElems.sog.textContent=(u.sogEMA!=null)?u.sogEMA.toFixed(2):'–';
+        if(u.nowElems.hdg) u.nowElems.hdg.textContent=(u.heading!=null)?u.heading.toFixed(0):'–';
+      } else { if(u.nowElems.ll) u.nowElems.ll.textContent='–'; }
 
-      // record if active
+      // recording
       if(recActive){
         recRows.push({
           unit, t, seq:d.seq, roll, pitch,
-          lat: (hasFix?lat:undefined),
-          lon: (hasFix?lon:undefined),
-          gnss_ms: (d.gnss_ms===null||d.gnss_ms===undefined)? undefined : d.gnss_ms,
-          gnss_iso: (d.gnss_iso||'')
+          lat:(hasFix?lat:undefined),
+          lon:(hasFix?lon:undefined),
+          gnss_ms:(d.gnss_ms===null||d.gnss_ms===undefined)?undefined:d.gnss_ms,
+          gnss_iso:(d.gnss_iso||'')
         });
       }
 
-      // synced roll/pitch plot driven by ref unit
-      const ref=getRefUnit();
-      if(ref===unit){ appendSyncedPoint(t); }
+      // synced arrival
+      const ref=getRefUnit(); if(ref===unit){ appendSyncedPoint(t); }
 
       chartSOG.update('none');
       recomputePeaksAndStatsAll();
@@ -919,15 +866,15 @@ document.getElementById('btnClear').addEventListener('click',()=>{
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=false);
     chartSOG.data.datasets[u.idxSOG].hidden=false;
   }
-  // reset combined distributions
-  try{ if(distCharts.roll)  updateDensityChart(distCharts.roll,  [], {fixedRange:[-45,45], roundStep:10}); }catch{}
-  try{ if(distCharts.pitch) updateDensityChart(distCharts.pitch, [], {fixedRange:[-45,45], roundStep:10}); }catch{}
+  // reset distributions
+  if(distCharts.roll){ for(const ds of distCharts.roll.data.datasets){ ds.data.length=0; ds.hidden=true; } distCharts.roll.update('none'); }
+  if(distCharts.pitch){ for(const ds of distCharts.pitch.data.datasets){ ds.data.length=0; ds.hidden=true; } distCharts.pitch.update('none'); }
   globalT0=null; syncLastMs=null; chartTS.update('none'); chartSOG.update('none'); log('cleared');
   firstMapFixDone=false; if(mapInited) map.setView([0,0],2);
 });
 
 // keep axes tight to window
-setInterval(updateAxisRange, 500);
+setInterval(updateAxisRange,500);
 </script>
 </body>
 </html>
