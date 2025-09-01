@@ -176,8 +176,8 @@
             <div style="grid-column:1/-1;">
               <label>Analysis Window (seconds) — stats & peak detection</label>
               <div class="range-row">
-                <input id="winSecRange" type="range" min="5" max="600" step="5" value="10"/>
-                <input id="winSec" type="number" min="5" max="600" step="5" value="10" style="width:90px"/>
+                <input id="winSecRange" type="range" min="5" max="600" step="5" value="30"/>
+                <input id="winSec" type="number" min="5" max="600" step="5" value="30" style="width:90px"/>
               </div>
             </div>
             <div><label>Min peak distance (ms)</label><input id="minDist" value="300"/></div>
@@ -379,7 +379,13 @@ let distIndexes={roll:{},pitch:{}};
 
 // ------------- timeseries & SOG -------------
 function makeTimeseries(){ return makeLineChart(document.getElementById('chart_ts').getContext('2d'),'degrees'); }
-function makeSOG(){ return makeLineChart(document.getElementById('chart_sog').getContext('2d'),'knots'); }
+function makeSOG(){
+  const chart = makeLineChart(document.getElementById('chart_sog').getContext('2d'), 'knots');
+  chart.options.scales.y.min = 0;
+  chart.options.scales.y.max = 8;
+  return chart;
+}
+
 
 // ------------- unit management -------------
 function ensureUnit(unitId){
@@ -580,20 +586,22 @@ function updateUnifiedDistributions(){
 
     const {rWin,pWin}=getWindowForUnit(u,winSec);
     if(rWin.length){
-      let ys=kdeOnGrid(rWin,distCharts.xs);
-      const maxY=Math.max(...ys,0);
-      ys = maxY>0 ? ys.map(y=>y/maxY*100) : ys.map(_=>0);
-      distCharts.roll.data.datasets[rIdx].data=ys;
+      let ys = kdeOnGrid(rWin, distCharts.xs);
+      const dx = (DIST_RANGE.max - DIST_RANGE.min) / (DIST_RANGE.gridCnt - 1);
+      const area = ys.reduce((s,y)=>s+y,0) * dx;          // integral over x
+      ys = area>0 ? ys.map(y => y * (100/area)) : ys.map(_=>0);
+      distCharts.roll.data.datasets[rIdx].data = ys;
       distCharts.roll.data.datasets[rIdx].hidden=false;
     } else {
       distCharts.roll.data.datasets[rIdx].hidden=true;
     }
 
     if(pWin.length){
-      let ys=kdeOnGrid(pWin,distCharts.xs);
-      const maxY=Math.max(...ys,0);
-      ys = maxY>0 ? ys.map(y=>y/maxY*100) : ys.map(_=>0);
-      distCharts.pitch.data.datasets[pIdx].data=ys;
+      let ys = kdeOnGrid(pWin, distCharts.xs);
+      const dx = (DIST_RANGE.max - DIST_RANGE.min) / (DIST_RANGE.gridCnt - 1);
+      const area = ys.reduce((s,y)=>s+y,0) * dx;
+      ys = area>0 ? ys.map(y => y * (100/area)) : ys.map(_=>0);
+      distCharts.pitch.data.datasets[pIdx].data = ys;
       distCharts.pitch.data.datasets[pIdx].hidden=false;
     } else {
       distCharts.pitch.data.datasets[pIdx].hidden=true;
