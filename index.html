@@ -38,7 +38,7 @@
   #map{height:40vh;min-height:260px;border-radius:12px;overflow:hidden}
   .leaflet-container{background:#0b1220}
 
-  /* Density (KDE) grid inside each unit's stats card */
+  /* Density (KDE) grid (now used on Plot tab) */
   .dgrid{
     display:grid;
     grid-template-columns:1fr 1fr;
@@ -115,6 +115,24 @@
           <div style="font-weight:700;margin-bottom:8px;">SOG (knots)</div>
           <div class="plot" style="height:40vh;min-height:260px;"><canvas id="chart_sog"></canvas></div>
           <div class="small" id="sogInfo" style="margin-top:6px;"></div>
+        </div>
+      </div>
+
+      <!-- NEW: Combined distributions -->
+      <div class="row">
+        <div class="card grow">
+          <div style="font-weight:700;margin-bottom:8px;">Distributions (window)</div>
+          <div class="dgrid">
+            <div class="dens-wrap">
+              <div class="dens-head">Roll (°) — combined</div>
+              <canvas id="dist-roll"></canvas>
+            </div>
+            <div class="dens-wrap">
+              <div class="dens-head">Pitch (°) — combined</div>
+              <canvas id="dist-pitch"></canvas>
+            </div>
+          </div>
+          <div class="tiny" style="margin-top:6px;">Aggregated across all visible units over the current analysis window.</div>
         </div>
       </div>
     </section>
@@ -255,9 +273,6 @@ const COLORS=["#4cc9f0","#ffd166","#ef476f","#06d6a0"];
 const units={}, discoveredOrder=[];
 const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000, GNSS_KEEP=4000;
 
-// global freq range across session (for full-range Freq density plots)
-let freqRangeGlobal = { min: Infinity, max: -Infinity };
-
 // read smoothing window
 const sogRange=$('sogWinRange'), sogNum=$('sogWin');
 function getSogWinSec(){ return Math.max(3, Math.min(30, parseInt(sogNum.value||'8',10))); }
@@ -275,6 +290,9 @@ let recActive=false, recRows=[], recStartedAt=null;
 
 // DOM
 const nowUnits=$('nowUnits'), statsUnits=$('statsUnits'), unitsList=$('unitsList');
+
+// NEW: combined distribution charts
+let distCharts = { roll:null, pitch:null };
 
 // ---- charts & map ----
 function makeTimeseries(){
@@ -350,14 +368,17 @@ function kdeEstimate(values, gridCount=160, pad=0.05, fixedRange=null){
   return {xs, ys};
 }
 
-/* ====== Density chart builder with neat ticks + padding ====== */
+/* ====== Density chart builder with y 0–110%, no y ticks, horizontal x ====== */
 function makeDensityChart(ctx, label, color, xOverrides=null){
   let xScale = {
     ticks:{
       color:'#dfe7ff',
       padding:6,
       maxRotation:0,
-      minRotation:0
+      minRotation:0,
+      autoSkip:true,
+      autoSkipPadding:8,
+      maxTicksLimit:10
     },
     grid:{color:'#2a385a', tickLength:4},
     title:{display:false}
@@ -367,12 +388,6 @@ function makeDensityChart(ctx, label, color, xOverrides=null){
     xScale.min = -45; xScale.max = 45;
     xScale.ticks.stepSize = 10;
     xScale.ticks.callback = (v)=>String(Math.round(v));
-  } else if(label==='SOG') {
-    xScale.ticks.stepSize = 0.5;
-    xScale.ticks.callback = (v)=>v.toFixed(1);
-  } else if(label==='Freq') {
-    xScale.ticks.stepSize = 1;
-    xScale.ticks.callback = (v)=>v.toFixed(1);
   }
 
   if(xOverrides){
@@ -400,7 +415,7 @@ function makeDensityChart(ctx, label, color, xOverrides=null){
       scales:{
         x: xScale,
         y:{
-          min:0, max:100,
+          min:0, max:110,
           grid:{color:'#2a385a', tickLength:4},
           ticks:{display:false},
           title:{display:false}
@@ -415,7 +430,7 @@ function makeDensityChart(ctx, label, color, xOverrides=null){
   });
 }
 
-/* ====== updateDensityChart supports fixedRange + roundStep ====== */
+/* ====== updateDensityChart: supports fixedRange + step rounding ====== */
 function updateDensityChart(chart, values, opts={}){
   function niceRange(min, max, step, pad=0.05){
     if(!Number.isFinite(min) || !Number.isFinite(max)) return [0,1];
@@ -470,10 +485,7 @@ function ensureUnit(unitId){
     idxSOG:null,
     poly:null, marker:null,
     nowElems:{}, statsElems:{},
-    dCharts:{},
-    lastRollHz:NaN,lastRollAt:0,lastPitchHz:NaN,lastPitchAt:0,
-    // per-unit freq range over session
-    fMin: Infinity, fMax: -Infinity
+    lastRollHz:NaN,lastRollAt:0,lastPitchHz:NaN,lastPitchAt:0
   };
 
   // timeseries datasets
@@ -515,7 +527,7 @@ function ensureUnit(unitId){
     sog:$(`now-sog-${unitId}`), sogMean:$(`now-sogmean-${unitId}`), hdg:$(`now-hdg-${unitId}`), ll:$(`now-ll-${unitId}`)
   };
 
-  // Stats card + KDE
+  // Stats card (no per-unit density charts anymore)
   const statsCol=document.createElement('div'); statsCol.className='card half unitStats'; statsCol.style.setProperty('--ucolor',color);
   statsCol.innerHTML=`<div style="font-weight:700;margin-bottom:8px;"><span class="unitTag" style="background:${color}">${unitId}</span> — window stats</div>
     <div class="grid">
@@ -528,24 +540,6 @@ function ensureUnit(unitId){
       <div><div class="small">Freq Roll (Hz)</div><div class="num" id="st-roll-hz-${unitId}">–</div></div>
       <div><div class="small">Freq Pitch (Hz)</div><div class="num" id="st-pitch-hz-${unitId}">–</div></div>
       <div style="grid-column:1/-1"><div class="small">Mean SOG (kt)</div><div class="num" id="st-sog-mean-${unitId}">–</div></div>
-    </div>
-    <div class="dgrid">
-      <div class="dens-wrap">
-        <div class="dens-head">Roll (°)</div>
-        <canvas id="d-roll-${unitId}"></canvas>
-      </div>
-      <div class="dens-wrap">
-        <div class="dens-head">Pitch (°)</div>
-        <canvas id="d-pitch-${unitId}"></canvas>
-      </div>
-      <div class="dens-wrap">
-        <div class="dens-head">Freq (Hz)</div>
-        <canvas id="d-freq-${unitId}"></canvas>
-      </div>
-      <div class="dens-wrap">
-        <div class="dens-head">SOG (kt)</div>
-        <canvas id="d-sog-${unitId}"></canvas>
-      </div>
     </div>`;
   statsUnits.appendChild(statsCol);
   u.statsElems={
@@ -555,12 +549,6 @@ function ensureUnit(unitId){
     rHz:$(`st-roll-hz-${unitId}`), pHz:$(`st-pitch-hz-${unitId}`),
     sogMean:$(`st-sog-mean-${unitId}`)
   };
-
-  // Density charts
-  u.dCharts.roll  = makeDensityChart(document.getElementById(`d-roll-${unitId}`).getContext('2d'),'Roll',color,null);
-  u.dCharts.pitch = makeDensityChart(document.getElementById(`d-pitch-${unitId}`).getContext('2d'),'Pitch',color,null);
-  u.dCharts.freq  = makeDensityChart(document.getElementById(`d-freq-${unitId}`).getContext('2d'),'Freq',color,null);
-  u.dCharts.sog   = makeDensityChart(document.getElementById(`d-sog-${unitId}`).getContext('2d'),'SOG',color,null);
 
   // settings checkbox
   const row=document.createElement('div');
@@ -584,7 +572,6 @@ function ensureUnit(unitId){
       if(map.hasLayer(u.marker)) map.removeLayer(u.marker);
     }
     chartTS.update('none'); chartSOG.update('none');
-    for(const k of Object.keys(u.dCharts)){ u.dCharts[k].update('none'); }
   });
 
   if(getRefUnit()===unitId && globalT0===null) resetSyncSeries();
@@ -650,11 +637,16 @@ function pruneOld(nowMs){
   }
 }
 
-// stats (incl. mean SOG) + KDE updates
+// stats + KDE updates (combined only)
 function recomputePeaksAndStatsAll(){
   const winSec=parseFloat(winNum.value||'10'), minDist=parseFloat($('minDist').value||'300'), minProm=parseFloat($('minProm').value||'5.0');
+
+  const aggRoll = [];
+  const aggPitch = [];
+
   for(const id of Object.keys(units)){
     const u=units[id]; if(!u.times.length) continue;
+
     const nowU=u.times[u.times.length-1]; const startMs=nowU - winSec*1000;
     let s=0; while(s<u.times.length && u.times[s]<startMs) s++;
     const tWin=u.times.slice(s), rWin=u.roll.slice(s), pWin=u.pitch.slice(s);
@@ -693,39 +685,16 @@ function recomputePeaksAndStatsAll(){
     const fNow = Number.isFinite(fShowR)?fShowR:(Number.isFinite(fShowP)?fShowP:NaN);
     if(u.nowElems.hz) u.nowElems.hz.textContent = isFinite(fNow)? fNow.toFixed(2):'–';
 
-    // -------- Density (KDE) updates --------
-    const freqSamples = [];
-    for(let i=1;i<rPeaks.length;i++){
-      const dt = (rPeaks[i].t - rPeaks[i-1].t) / 1000;
-      if(dt > 0) freqSamples.push(1/dt);
+    // accumulate for combined distributions (visible units only)
+    if(u.visible){
+      for(let i=0;i<rWin.length;i++){ const rv=rWin[i]; if(Number.isFinite(rv)) aggRoll.push(rv); }
+      for(let i=0;i<pWin.length;i++){ const pv=pWin[i]; if(Number.isFinite(pv)) aggPitch.push(pv); }
     }
-
-    // Update per-unit & global frequency ranges
-    if (freqSamples.length){
-      const locMin = Math.min(...freqSamples);
-      const locMax = Math.max(...freqSamples);
-      u.fMin = Math.min(u.fMin, locMin);
-      u.fMax = Math.max(u.fMax, locMax);
-      freqRangeGlobal.min = Math.min(freqRangeGlobal.min, locMin);
-      freqRangeGlobal.max = Math.max(freqRangeGlobal.max, locMax);
-    }
-
-    // Build a fixed range for all freq charts (full session)
-    let freqFixed = null;
-    if (Number.isFinite(freqRangeGlobal.min) && Number.isFinite(freqRangeGlobal.max)){
-      const step = 1; // 1.0 Hz ticks
-      let mn = Math.floor(freqRangeGlobal.min / step) * step;
-      let mx = Math.ceil (freqRangeGlobal.max / step) * step;
-      if (mn === mx) mx = mn + step;
-      if (mn < 0) mn = 0; // Hz can't be negative
-      freqFixed = [mn, mx];
-    }
-
-    if(u.dCharts.roll)  updateDensityChart(u.dCharts.roll,  rWin,  {fixedRange:[-45,45]});
-    if(u.dCharts.pitch) updateDensityChart(u.dCharts.pitch, pWin,  {fixedRange:[-45,45]});
-    if(u.dCharts.freq)  updateDensityChart(u.dCharts.freq,  freqSamples, {roundStep:1, fixedRange: freqFixed}); // full session freq range
-    if(u.dCharts.sog)   updateDensityChart(u.dCharts.sog,   sogWin,      {roundStep:0.5});
   }
+
+  // update combined charts
+  if(distCharts.roll)  updateDensityChart(distCharts.roll,  aggRoll,  {fixedRange:[-45,45], roundStep:10});
+  if(distCharts.pitch) updateDensityChart(distCharts.pitch, aggPitch, {fixedRange:[-45,45], roundStep:10});
 }
 
 // ---- synced plotting (arrival-time ZOH) ----
@@ -826,13 +795,9 @@ document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
   const name=b.dataset.tab; ['plot','stats','settings'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
   document.getElementById('tab-'+name).classList.remove('hidden');
   document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
-  if(name==='stats'){
-    for(const id of Object.keys(units)){
-      const u=units[id];
-      if(u.dCharts){
-        for(const k of Object.keys(u.dCharts)){ try{ u.dCharts[k].resize(); u.dCharts[k].update('none'); }catch(e){} }
-      }
-    }
+  if(name==='plot'){
+    try{ distCharts.roll.resize();  distCharts.roll.update('none'); }catch{}
+    try{ distCharts.pitch.resize(); distCharts.pitch.update('none'); }catch{}
   }
 }));
 
@@ -846,6 +811,15 @@ document.getElementById('btnUnlock').addEventListener('click',async ()=>{
     document.getElementById('gate').classList.add('hidden'); document.getElementById('app').classList.remove('hidden');
     document.getElementById('cid').value='web-'+Math.random().toString(16).slice(2,10);
     chartTS=makeTimeseries(); chartSOG=makeSOG(); makeMap();
+
+    // init combined distribution charts
+    (function initUnifiedDistributions(){
+      const rctx = document.getElementById('dist-roll').getContext('2d');
+      const pctx = document.getElementById('dist-pitch').getContext('2d');
+      distCharts.roll  = makeDensityChart(rctx, 'Roll',  '#4cc9f0', {min:-45, max:45, stepSize:10, noDecimals:true});
+      distCharts.pitch = makeDensityChart(pctx, 'Pitch', '#ffd166', {min:-45, max:45, stepSize:10, noDecimals:true});
+    })();
+
     setStatus('unlocked — not connected',false);
     applyWindow(document.getElementById('winSec').value); applyViewWindow(document.getElementById('viewSec').value);
     syncRefSelect.addEventListener('change', e=>setSyncRefMode(e.target.value));
@@ -942,17 +916,12 @@ document.getElementById('btnClear').addEventListener('click',()=>{
     u.gnssLatLngs.length=0; u.poly.setLatLngs([]); u.poly.setStyle({opacity:0}); u.marker.setStyle({opacity:0, fillOpacity:0});
     u.lat0=null; u.lon0=null; u.posBuf.length=0; u.sogEMA=null; u.heading=null;
     u.sogTimes.length=0; u.sogVals.length=0; u.sogSeries.length=0;
-    u.fMin = Infinity; u.fMax = -Infinity; // reset per-unit freq range
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=false);
     chartSOG.data.datasets[u.idxSOG].hidden=false;
-    if(u.dCharts){
-      updateDensityChart(u.dCharts.roll,  [], {fixedRange:[-45,45]});
-      updateDensityChart(u.dCharts.pitch, [], {fixedRange:[-45,45]});
-      updateDensityChart(u.dCharts.freq,  [], {roundStep:1});   // tidy Hz frame
-      updateDensityChart(u.dCharts.sog,   [], {roundStep:0.5}); // tidy kt frame
-    }
   }
-  freqRangeGlobal = { min: Infinity, max: -Infinity }; // reset global freq range
+  // reset combined distributions
+  try{ if(distCharts.roll)  updateDensityChart(distCharts.roll,  [], {fixedRange:[-45,45], roundStep:10}); }catch{}
+  try{ if(distCharts.pitch) updateDensityChart(distCharts.pitch, [], {fixedRange:[-45,45], roundStep:10}); }catch{}
   globalT0=null; syncLastMs=null; chartTS.update('none'); chartSOG.update('none'); log('cleared');
   firstMapFixDone=false; if(mapInited) map.setView([0,0],2);
 });
