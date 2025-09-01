@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>TrollSports Live v1.5.3</title>
+<title>TrollSports Live v1.5.4</title>
 <meta name="theme-color" content="#0b1220"/>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -38,47 +38,37 @@
   #map{height:40vh;min-height:260px;border-radius:12px;overflow:hidden}
   .leaflet-container{background:#0b1220}
 
-  /* Constrain per-unit boxplot area and keep canvas from expanding parent */
-  .bp-wrap{
+  /* Histogram grid inside each unit's stats card */
+  .hgrid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:10px;
     margin-top:10px;
-    height:240px;
+  }
+  .hist-wrap{
     position:relative;
+    height:160px;     /* compact, fixed height */
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:6px 6px 4px 6px;
+    background:#0e1730;
     overflow:hidden;
   }
-  .bp-wrap canvas{
+  .hist-head{font-size:11px;color:var(--muted);margin:2px 0 4px 2px}
+  .hist-wrap canvas{
     position:absolute;
-    inset:0;
-    width:100% !important;
-    height:100% !important;
-    display:block;
+    left:0; right:0; bottom:6px; top:22px; /* leave room for label */
+    width:100% !important; height:auto !important;
   }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
-<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot@4.4.3"></script>
-<!-- Deterministic registration: registers all plugin exports so 'boxplot' is known -->
-<script>
-(function(){
-  if (!window.Chart) { console.error('Chart.js not loaded'); return; }
-  const mod = window['chartjs-chart-boxplot'];
-  if (!mod) { console.error('chartjs-chart-boxplot UMD not found on window'); return; }
-  try {
-    const registrables = Object.values(mod).filter(Boolean);
-    Chart.register(...registrables);
-    if (!Chart.registry.controllers.has('boxplot')) {
-      console.warn('Boxplot controller still not present after registration');
-    }
-  } catch (e) {
-    console.error('Registration of chartjs-chart-boxplot failed:', e);
-  }
-})();
-</script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
 <body>
   <div class="topbar">
     <div class="app-title">TrollSports Live</div><div class="spacer"></div>
-    <div class="ver">v1.5.3</div>
+    <div class="ver">v1.5.4</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -209,7 +199,7 @@
   </div>
 
 <script>
-const APP_VERSION="v1.5.3";
+const APP_VERSION="v1.5.4";
 const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9";
 const $=id=>document.getElementById(id);
 
@@ -246,12 +236,7 @@ function projLocalMeters(lat0,lon0,lat,lon){
   const y = (toR(lat)-toR(lat0)) * Rm;
   return {x,y};
 }
-function bearingFromV(vx,vy){
-  const toD=a=>a*180/Math.PI;
-  let brg = toD(Math.atan2(vx, vy)); // atan2(East, North)
-  if(brg<0) brg+=360;
-  return brg;
-}
+function bearingFromV(vx,vy){ const toD=a=>a*180/Math.PI; let brg = toD(Math.atan2(vx, vy)); if(brg<0) brg+=360; return brg; }
 
 const KNOTS_PER_MPS=1.94384449;
 
@@ -313,6 +298,43 @@ function makeMap(){
 }
 function fitMapIfFirst(lat,lon){ if(!firstMapFixDone){ map.setView([lat,lon], 15); firstMapFixDone=true; } }
 
+// ---------- Histogram helpers ----------
+function buildHistogram(values, binCount=20){
+  const arr = (values||[]).filter(v=>Number.isFinite(v));
+  if(arr.length===0){
+    return {labels:Array.from({length:binCount},(_,i)=>i), counts:new Array(binCount).fill(0), min:0,max:1};
+  }
+  let min=Math.min(...arr), max=Math.max(...arr);
+  if(min===max){ min -= 0.5; max += 0.5; }
+  const width=(max-min)/binCount;
+  const counts=new Array(binCount).fill(0);
+  for(const v of arr){
+    let idx=Math.floor((v-min)/width);
+    if(idx<0) idx=0; if(idx>=binCount) idx=binCount-1;
+    counts[idx]++;
+  }
+  const labels = counts.map((_,i)=> (min+(i+0.5)*width) );
+  return {labels, counts, min, max};
+}
+function makeHistChart(ctx, label, color){
+  return new Chart(ctx,{
+    type:'bar',
+    data:{labels:[], datasets:[{label, data:[], borderColor:color, backgroundColor:color+'33', borderWidth:1}]},
+    options:{
+      responsive:true, maintainAspectRatio:false, animation:false,
+      scales:{ x:{ticks:{color:'#dfe7ff', maxRotation:0, autoSkip:true, callback:(v,i)=>''}},
+               y:{ticks:{color:'#dfe7ff', precision:0}, grid:{color:'#2a385a'}} },
+      plugins:{legend:{display:false}, tooltip:{callbacks:{label:(ctx)=>`${ctx.parsed.y} samples`}}}
+    }
+  });
+}
+function updateHistChart(chart, values){
+  const {labels, counts}=buildHistogram(values, 20);
+  chart.data.labels = labels;
+  chart.data.datasets[0].data = counts;
+  chart.update('none');
+}
+
 // ---- units ----
 function ensureUnit(unitId){
   if(units[unitId]) return units[unitId];
@@ -331,7 +353,7 @@ function ensureUnit(unitId){
     idxSOG:null,
     poly:null, marker:null,
     nowElems:{}, statsElems:{},
-    boxChart:null,
+    hCharts:{}, // hist charts
     lastRollHz:NaN,lastRollAt:0,lastPitchHz:NaN,lastPitchAt:0
   };
 
@@ -374,7 +396,7 @@ function ensureUnit(unitId){
     sog:$(`now-sog-${unitId}`), sogMean:$(`now-sogmean-${unitId}`), hdg:$(`now-hdg-${unitId}`), ll:$(`now-ll-${unitId}`)
   };
 
-  // Stats card + BOX PLOT area
+  // Stats card + HISTOGRAMS area
   const statsCol=document.createElement('div'); statsCol.className='card half unitStats'; statsCol.style.setProperty('--ucolor',color);
   statsCol.innerHTML=`<div style="font-weight:700;margin-bottom:8px;"><span class="unitTag" style="background:${color}">${unitId}</span> — window stats</div>
     <div class="grid">
@@ -388,9 +410,23 @@ function ensureUnit(unitId){
       <div><div class="small">Freq Pitch (Hz)</div><div class="num" id="st-pitch-hz-${unitId}">–</div></div>
       <div style="grid-column:1/-1"><div class="small">Mean SOG (kt)</div><div class="num" id="st-sog-mean-${unitId}">–</div></div>
     </div>
-    <div class="bp-wrap">
-      <div class="small" style="margin-bottom:6px;">Window distributions (box plots): Roll, Pitch, Freq, SOG</div>
-      <canvas id="bp-${unitId}"></canvas>
+    <div class="hgrid">
+      <div class="hist-wrap">
+        <div class="hist-head">Roll (°)</div>
+        <canvas id="h-roll-${unitId}"></canvas>
+      </div>
+      <div class="hist-wrap">
+        <div class="hist-head">Pitch (°)</div>
+        <canvas id="h-pitch-${unitId}"></canvas>
+      </div>
+      <div class="hist-wrap">
+        <div class="hist-head">Freq (Hz)</div>
+        <canvas id="h-freq-${unitId}"></canvas>
+      </div>
+      <div class="hist-wrap">
+        <div class="hist-head">SOG (kt)</div>
+        <canvas id="h-sog-${unitId}"></canvas>
+      </div>
     </div>`;
   statsUnits.appendChild(statsCol);
   u.statsElems={
@@ -401,33 +437,11 @@ function ensureUnit(unitId){
     sogMean:$(`st-sog-mean-${unitId}`)
   };
 
-  // per-unit boxplot chart
-  const bpCtx = document.getElementById(`bp-${unitId}`).getContext('2d');
-  u.boxChart = new Chart(bpCtx, {
-    type: 'boxplot',
-    data: {
-      labels: ['Roll (°)', 'Pitch (°)', 'Freq (Hz)', 'SOG (kt)'],
-      datasets: [{
-        label: `${unitId} window`,
-        data: [[], [], [], []],   // filled on recompute
-        borderWidth: 1.5,
-        outlierRadius: 2,
-        borderColor: color,
-        backgroundColor: color + '33'
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      resizeDelay: 0,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: '#dfe7ff' }, grid: { color: '#2a385a' } },
-        y: { ticks: { color: '#dfe7ff' }, grid: { color: '#2a385a' } }
-      }
-    }
-  });
+  // per-unit hist charts
+  u.hCharts.roll  = makeHistChart(document.getElementById(`h-roll-${unitId}`).getContext('2d'),'Roll',color);
+  u.hCharts.pitch = makeHistChart(document.getElementById(`h-pitch-${unitId}`).getContext('2d'),'Pitch',color);
+  u.hCharts.freq  = makeHistChart(document.getElementById(`h-freq-${unitId}`).getContext('2d'),'Freq',color);
+  u.hCharts.sog   = makeHistChart(document.getElementById(`h-sog-${unitId}`).getContext('2d'),'SOG',color);
 
   // settings checkbox
   const row=document.createElement('div');
@@ -451,7 +465,7 @@ function ensureUnit(unitId){
       if(map.hasLayer(u.marker)) map.removeLayer(u.marker);
     }
     chartTS.update('none'); chartSOG.update('none');
-    if(u.boxChart) u.boxChart.update('none');
+    for(const k of Object.keys(u.hCharts)){ u.hCharts[k].update('none'); }
   });
 
   if(getRefUnit()===unitId && globalT0===null) resetSyncSeries();
@@ -517,7 +531,7 @@ function pruneOld(nowMs){
   }
 }
 
-// stats (incl. mean SOG) + BOX PLOTS
+// stats (incl. mean SOG) + HISTOGRAM updates
 function recomputePeaksAndStatsAll(){
   const winSec=parseFloat(winNum.value||'10'), minDist=parseFloat($('minDist').value||'300'), minProm=parseFloat($('minProm').value||'5.0');
   for(const id of Object.keys(units)){
@@ -560,21 +574,16 @@ function recomputePeaksAndStatsAll(){
     const fNow = Number.isFinite(fShowR)?fShowR:(Number.isFinite(fShowP)?fShowP:NaN);
     if(u.nowElems.hz) u.nowElems.hz.textContent = isFinite(fNow)? fNow.toFixed(2):'–';
 
-    // -------- Box plot datasets (window distributions) --------
+    // -------- Histogram updates (window distributions) --------
     const freqSamples = [];
     for(let i=1;i<rPeaks.length;i++){
       const dt = (rPeaks[i].t - rPeaks[i-1].t) / 1000;
       if(dt > 0) freqSamples.push(1/dt);
     }
-    if(u.boxChart){
-      u.boxChart.data.datasets[0].data = [
-        rWin,          // Roll (deg)
-        pWin,          // Pitch (deg)
-        freqSamples,   // Frequency (Hz) from roll peaks
-        sogWin         // SOG (kt)
-      ];
-      u.boxChart.update('none');
-    }
+    if(u.hCharts.roll)  updateHistChart(u.hCharts.roll,  rWin);
+    if(u.hCharts.pitch) updateHistChart(u.hCharts.pitch, pWin);
+    if(u.hCharts.freq)  updateHistChart(u.hCharts.freq,  freqSamples);
+    if(u.hCharts.sog)   updateHistChart(u.hCharts.sog,   sogWin);
   }
 }
 
@@ -676,11 +685,13 @@ document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
   const name=b.dataset.tab; ['plot','stats','settings'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
   document.getElementById('tab-'+name).classList.remove('hidden');
   document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
-  // When showing stats, force boxplot charts to resize + update
+  // When showing stats, force histograms to resize + update
   if(name==='stats'){
     for(const id of Object.keys(units)){
       const u=units[id];
-      if(u.boxChart){ try{ u.boxChart.resize(); u.boxChart.update('none'); }catch(e){} }
+      if(u.hCharts){
+        for(const k of Object.keys(u.hCharts)){ try{ u.hCharts[k].resize(); u.hCharts[k].update('none'); }catch(e){} }
+      }
     }
   }
 }));
@@ -793,10 +804,7 @@ document.getElementById('btnClear').addEventListener('click',()=>{
     u.sogTimes.length=0; u.sogVals.length=0; u.sogSeries.length=0;
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=false);
     chartSOG.data.datasets[u.idxSOG].hidden=false;
-    if(u.boxChart){
-      u.boxChart.data.datasets[0].data=[[],[],[],[]];
-      u.boxChart.update('none');
-    }
+    if(u.hCharts){ for(const k of Object.keys(u.hCharts)){ updateHistChart(u.hCharts[k], []); } }
   }
   globalT0=null; syncLastMs=null; chartTS.update('none'); chartSOG.update('none'); log('cleared');
   firstMapFixDone=false; if(mapInited) map.setView([0,0],2);
