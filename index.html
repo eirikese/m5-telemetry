@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>TrollSports Live v1.5.5</title>
+<title>TrollSports Live v1.5.6</title>
 <meta name="theme-color" content="#0b1220"/>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -47,7 +47,7 @@
   }
   .dens-wrap{
     position:relative;
-    height:160px;     /* compact fixed height */
+    height:160px;
     border:1px solid var(--border);
     border-radius:8px;
     padding:6px 6px 4px 6px;
@@ -68,7 +68,7 @@
 <body>
   <div class="topbar">
     <div class="app-title">TrollSports Live</div><div class="spacer"></div>
-    <div class="ver">v1.5.5</div>
+    <div class="ver">v1.5.6</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -199,7 +199,7 @@
   </div>
 
 <script>
-const APP_VERSION="v1.5.5";
+const APP_VERSION="v1.5.6";
 const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9";
 const $=id=>document.getElementById(id);
 
@@ -309,22 +309,33 @@ function stddev(arr){
   const m = arr.reduce((s,v)=>s+v,0)/arr.length;
   return Math.sqrt(arr.reduce((s,v)=>s+(v-m)*(v-m),0)/arr.length);
 }
-// Scott’s rule bandwidth (robust and simple)
 function kdeBandwidth(arr){
   if(arr.length<2) return 1;
   const s = stddev(arr);
   return 1.06 * s * Math.pow(arr.length, -1/5);
 }
 function gaussian(u){ return Math.exp(-0.5*u*u)/Math.sqrt(2*Math.PI); }
-function kdeEstimate(values, gridCount=120, pad=0.1){
+function kdeEstimate(values, gridCount=120, pad=0.1, fixedRange=null){
   const x = (values||[]).filter(Number.isFinite);
-  if(x.length===0) return {xs:[0,1], ys:[0,0], min:0, max:1};
-  let min = Math.min(...x), max = Math.max(...x);
-  if(min===max){ min-=0.5; max+=0.5; }
-  const range = max-min; min -= range*pad; max += range*pad;
+  if(x.length===0){
+    const [mn,mx]=fixedRange??[0,1];
+    return {xs:[mn,mx], ys:[0,0], min:mn, max:mx};
+  }
+  let min, max;
+  if(fixedRange){
+    [min,max]=fixedRange;
+  }else{
+    min = Math.min(...x); max = Math.max(...x);
+    if(min===max){ min-=0.5; max+=0.5; }
+    const range = max-min; min -= range*pad; max += range*pad;
+  }
   const xs = linspace(min,max,gridCount);
+  // bandwidth from sample spread (independent of fixedRange)
   let h = kdeBandwidth(x);
-  if(!Number.isFinite(h) || h<=1e-6) h = Math.max(range*0.05, 1e-3);
+  if(!Number.isFinite(h) || h<=1e-6){
+    const sp = (Math.max(...x)-Math.min(...x))||1;
+    h = Math.max(sp*0.05, 1e-3);
+  }
   const invn = 1/x.length;
   const ys = xs.map(x0=>{
     let s=0;
@@ -333,7 +344,24 @@ function kdeEstimate(values, gridCount=120, pad=0.1){
   });
   return {xs, ys, min, max};
 }
-function makeDensityChart(ctx, label, color){
+function makeDensityChart(ctx, label, color, xOverrides=null){
+  // xOverrides allows fixed limits/ticks for specific charts (roll/pitch)
+  const xScale = {
+    ticks:{color:'#dfe7ff'},
+    grid:{color:'#2a385a', tickLength:4},
+    title:{display:false}
+  };
+  if(xOverrides){
+    if(xOverrides.min!=null) xScale.min = xOverrides.min;
+    if(xOverrides.max!=null) xScale.max = xOverrides.max;
+    if(xOverrides.stepSize!=null){
+      xScale.ticks.stepSize = xOverrides.stepSize;
+    }
+    if(xOverrides.noDecimals){
+      xScale.ticks.callback = (v)=>String(Math.round(v));
+    }
+  }
+
   return new Chart(ctx,{
     type:'line',
     data:{labels:[], datasets:[{
@@ -349,7 +377,7 @@ function makeDensityChart(ctx, label, color){
     options:{
       responsive:true, maintainAspectRatio:false, animation:false,
       scales:{
-        x:{ticks:{color:'#dfe7ff'}, grid:{color:'#2a385a'}, title:{display:false}},
+        x: xScale,
         y:{ticks:{color:'#dfe7ff'}, grid:{color:'#2a385a'}, title:{display:false}}
       },
       plugins:{
@@ -360,8 +388,8 @@ function makeDensityChart(ctx, label, color){
     }
   });
 }
-function updateDensityChart(chart, values){
-  const est = kdeEstimate(values, 120, 0.05);
+function updateDensityChart(chart, values, opts={}){
+  const est = kdeEstimate(values, 120, 0.05, opts.fixedRange ?? null);
   chart.data.labels = est.xs;
   chart.data.datasets[0].data = est.ys;
   chart.update('none');
@@ -470,10 +498,13 @@ function ensureUnit(unitId){
   };
 
   // per-unit density charts
-  u.dCharts.roll  = makeDensityChart(document.getElementById(`d-roll-${unitId}`).getContext('2d'),'Roll',color);
-  u.dCharts.pitch = makeDensityChart(document.getElementById(`d-pitch-${unitId}`).getContext('2d'),'Pitch',color);
-  u.dCharts.freq  = makeDensityChart(document.getElementById(`d-freq-${unitId}`).getContext('2d'),'Freq',color);
-  u.dCharts.sog   = makeDensityChart(document.getElementById(`d-sog-${unitId}`).getContext('2d'),'SOG',color);
+  // Roll & Pitch: fixed x limits [-45, 45], ticks every 15°, no decimals, short tick marks
+  const xFixed = {min:-45, max:45, stepSize:15, noDecimals:true};
+  u.dCharts.roll  = makeDensityChart(document.getElementById(`d-roll-${unitId}`).getContext('2d'),'Roll',color,xFixed);
+  u.dCharts.pitch = makeDensityChart(document.getElementById(`d-pitch-${unitId}`).getContext('2d'),'Pitch',color,xFixed);
+  // Freq & SOG: auto
+  u.dCharts.freq  = makeDensityChart(document.getElementById(`d-freq-${unitId}`).getContext('2d'),'Freq',color,null);
+  u.dCharts.sog   = makeDensityChart(document.getElementById(`d-sog-${unitId}`).getContext('2d'),'SOG',color,null);
 
   // settings checkbox
   const row=document.createElement('div');
@@ -606,14 +637,16 @@ function recomputePeaksAndStatsAll(){
     const fNow = Number.isFinite(fShowR)?fShowR:(Number.isFinite(fShowP)?fShowP:NaN);
     if(u.nowElems.hz) u.nowElems.hz.textContent = isFinite(fNow)? fNow.toFixed(2):'–';
 
-    // -------- Density (KDE) updates (window distributions) --------
+    // -------- Density (KDE) updates --------
     const freqSamples = [];
     for(let i=1;i<rPeaks.length;i++){
       const dt = (rPeaks[i].t - rPeaks[i-1].t) / 1000;
       if(dt > 0) freqSamples.push(1/dt);
     }
-    if(u.dCharts.roll)  updateDensityChart(u.dCharts.roll,  rWin);
-    if(u.dCharts.pitch) updateDensityChart(u.dCharts.pitch, pWin);
+    // Roll/Pitch with fixed range [-45, 45] and no decimals on x-ticks
+    if(u.dCharts.roll)  updateDensityChart(u.dCharts.roll,  rWin,  {fixedRange:[-45,45]});
+    if(u.dCharts.pitch) updateDensityChart(u.dCharts.pitch, pWin,  {fixedRange:[-45,45]});
+    // Freq/SOG auto
     if(u.dCharts.freq)  updateDensityChart(u.dCharts.freq,  freqSamples);
     if(u.dCharts.sog)   updateDensityChart(u.dCharts.sog,   sogWin);
   }
@@ -836,7 +869,12 @@ document.getElementById('btnClear').addEventListener('click',()=>{
     u.sogTimes.length=0; u.sogVals.length=0; u.sogSeries.length=0;
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=false);
     chartSOG.data.datasets[u.idxSOG].hidden=false;
-    if(u.dCharts){ for(const k of Object.keys(u.dCharts)){ updateDensityChart(u.dCharts[k], []); } }
+    if(u.dCharts){
+      updateDensityChart(u.dCharts.roll, [], {fixedRange:[-45,45]});
+      updateDensityChart(u.dCharts.pitch, [], {fixedRange:[-45,45]});
+      updateDensityChart(u.dCharts.freq, []);
+      updateDensityChart(u.dCharts.sog, []);
+    }
   }
   globalT0=null; syncLastMs=null; chartTS.update('none'); chartSOG.update('none'); log('cleared');
   firstMapFixDone=false; if(mapInited) map.setView([0,0],2);
