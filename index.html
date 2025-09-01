@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>TrollSports Live v1.5.4</title>
+<title>TrollSports Live v1.5.5</title>
 <meta name="theme-color" content="#0b1220"/>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -38,24 +38,24 @@
   #map{height:40vh;min-height:260px;border-radius:12px;overflow:hidden}
   .leaflet-container{background:#0b1220}
 
-  /* Histogram grid inside each unit's stats card */
-  .hgrid{
+  /* Density (KDE) grid inside each unit's stats card */
+  .dgrid{
     display:grid;
     grid-template-columns:1fr 1fr;
     gap:10px;
     margin-top:10px;
   }
-  .hist-wrap{
+  .dens-wrap{
     position:relative;
-    height:160px;     /* compact, fixed height */
+    height:160px;     /* compact fixed height */
     border:1px solid var(--border);
     border-radius:8px;
     padding:6px 6px 4px 6px;
     background:#0e1730;
     overflow:hidden;
   }
-  .hist-head{font-size:11px;color:var(--muted);margin:2px 0 4px 2px}
-  .hist-wrap canvas{
+  .dens-head{font-size:11px;color:var(--muted);margin:2px 0 4px 2px}
+  .dens-wrap canvas{
     position:absolute;
     left:0; right:0; bottom:6px; top:22px; /* leave room for label */
     width:100% !important; height:auto !important;
@@ -68,7 +68,7 @@
 <body>
   <div class="topbar">
     <div class="app-title">TrollSports Live</div><div class="spacer"></div>
-    <div class="ver">v1.5.4</div>
+    <div class="ver">v1.5.5</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -199,7 +199,7 @@
   </div>
 
 <script>
-const APP_VERSION="v1.5.4";
+const APP_VERSION="v1.5.5";
 const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9";
 const $=id=>document.getElementById(id);
 
@@ -298,40 +298,72 @@ function makeMap(){
 }
 function fitMapIfFirst(lat,lon){ if(!firstMapFixDone){ map.setView([lat,lon], 15); firstMapFixDone=true; } }
 
-// ---------- Histogram helpers ----------
-function buildHistogram(values, binCount=20){
-  const arr = (values||[]).filter(v=>Number.isFinite(v));
-  if(arr.length===0){
-    return {labels:Array.from({length:binCount},(_,i)=>i), counts:new Array(binCount).fill(0), min:0,max:1};
-  }
-  let min=Math.min(...arr), max=Math.max(...arr);
-  if(min===max){ min -= 0.5; max += 0.5; }
-  const width=(max-min)/binCount;
-  const counts=new Array(binCount).fill(0);
-  for(const v of arr){
-    let idx=Math.floor((v-min)/width);
-    if(idx<0) idx=0; if(idx>=binCount) idx=binCount-1;
-    counts[idx]++;
-  }
-  const labels = counts.map((_,i)=> (min+(i+0.5)*width) );
-  return {labels, counts, min, max};
+// ---------- KDE helpers (continuous smoothed distributions) ----------
+function linspace(min,max,n){
+  const a=new Array(n); const step=(max-min)/(n-1);
+  for(let i=0;i<n;i++) a[i]=min+i*step;
+  return a;
 }
-function makeHistChart(ctx, label, color){
+function stddev(arr){
+  if(!arr.length) return 0;
+  const m = arr.reduce((s,v)=>s+v,0)/arr.length;
+  return Math.sqrt(arr.reduce((s,v)=>s+(v-m)*(v-m),0)/arr.length);
+}
+// Scott’s rule bandwidth (robust and simple)
+function kdeBandwidth(arr){
+  if(arr.length<2) return 1;
+  const s = stddev(arr);
+  return 1.06 * s * Math.pow(arr.length, -1/5);
+}
+function gaussian(u){ return Math.exp(-0.5*u*u)/Math.sqrt(2*Math.PI); }
+function kdeEstimate(values, gridCount=120, pad=0.1){
+  const x = (values||[]).filter(Number.isFinite);
+  if(x.length===0) return {xs:[0,1], ys:[0,0], min:0, max:1};
+  let min = Math.min(...x), max = Math.max(...x);
+  if(min===max){ min-=0.5; max+=0.5; }
+  const range = max-min; min -= range*pad; max += range*pad;
+  const xs = linspace(min,max,gridCount);
+  let h = kdeBandwidth(x);
+  if(!Number.isFinite(h) || h<=1e-6) h = Math.max(range*0.05, 1e-3);
+  const invn = 1/x.length;
+  const ys = xs.map(x0=>{
+    let s=0;
+    for(let i=0;i<x.length;i++) s += gaussian((x0-x[i])/h);
+    return s*invn/h;
+  });
+  return {xs, ys, min, max};
+}
+function makeDensityChart(ctx, label, color){
   return new Chart(ctx,{
-    type:'bar',
-    data:{labels:[], datasets:[{label, data:[], borderColor:color, backgroundColor:color+'33', borderWidth:1}]},
+    type:'line',
+    data:{labels:[], datasets:[{
+      label,
+      data:[],
+      borderColor:color,
+      backgroundColor:color+'22',
+      fill:true,
+      pointRadius:0,
+      tension:0.25,
+      borderWidth:2
+    }]},
     options:{
       responsive:true, maintainAspectRatio:false, animation:false,
-      scales:{ x:{ticks:{color:'#dfe7ff', maxRotation:0, autoSkip:true, callback:(v,i)=>''}},
-               y:{ticks:{color:'#dfe7ff', precision:0}, grid:{color:'#2a385a'}} },
-      plugins:{legend:{display:false}, tooltip:{callbacks:{label:(ctx)=>`${ctx.parsed.y} samples`}}}
+      scales:{
+        x:{ticks:{color:'#dfe7ff'}, grid:{color:'#2a385a'}, title:{display:false}},
+        y:{ticks:{color:'#dfe7ff'}, grid:{color:'#2a385a'}, title:{display:false}}
+      },
+      plugins:{
+        legend:{display:false},
+        tooltip:{mode:'index',intersect:false,
+          callbacks:{label:(ctx)=> ` density: ${ctx.parsed.y.toFixed(3)}`}}
+      }
     }
   });
 }
-function updateHistChart(chart, values){
-  const {labels, counts}=buildHistogram(values, 20);
-  chart.data.labels = labels;
-  chart.data.datasets[0].data = counts;
+function updateDensityChart(chart, values){
+  const est = kdeEstimate(values, 120, 0.05);
+  chart.data.labels = est.xs;
+  chart.data.datasets[0].data = est.ys;
   chart.update('none');
 }
 
@@ -353,7 +385,7 @@ function ensureUnit(unitId){
     idxSOG:null,
     poly:null, marker:null,
     nowElems:{}, statsElems:{},
-    hCharts:{}, // hist charts
+    dCharts:{}, // density charts
     lastRollHz:NaN,lastRollAt:0,lastPitchHz:NaN,lastPitchAt:0
   };
 
@@ -396,7 +428,7 @@ function ensureUnit(unitId){
     sog:$(`now-sog-${unitId}`), sogMean:$(`now-sogmean-${unitId}`), hdg:$(`now-hdg-${unitId}`), ll:$(`now-ll-${unitId}`)
   };
 
-  // Stats card + HISTOGRAMS area
+  // Stats card + KDE (continuous) area
   const statsCol=document.createElement('div'); statsCol.className='card half unitStats'; statsCol.style.setProperty('--ucolor',color);
   statsCol.innerHTML=`<div style="font-weight:700;margin-bottom:8px;"><span class="unitTag" style="background:${color}">${unitId}</span> — window stats</div>
     <div class="grid">
@@ -410,22 +442,22 @@ function ensureUnit(unitId){
       <div><div class="small">Freq Pitch (Hz)</div><div class="num" id="st-pitch-hz-${unitId}">–</div></div>
       <div style="grid-column:1/-1"><div class="small">Mean SOG (kt)</div><div class="num" id="st-sog-mean-${unitId}">–</div></div>
     </div>
-    <div class="hgrid">
-      <div class="hist-wrap">
-        <div class="hist-head">Roll (°)</div>
-        <canvas id="h-roll-${unitId}"></canvas>
+    <div class="dgrid">
+      <div class="dens-wrap">
+        <div class="dens-head">Roll (°)</div>
+        <canvas id="d-roll-${unitId}"></canvas>
       </div>
-      <div class="hist-wrap">
-        <div class="hist-head">Pitch (°)</div>
-        <canvas id="h-pitch-${unitId}"></canvas>
+      <div class="dens-wrap">
+        <div class="dens-head">Pitch (°)</div>
+        <canvas id="d-pitch-${unitId}"></canvas>
       </div>
-      <div class="hist-wrap">
-        <div class="hist-head">Freq (Hz)</div>
-        <canvas id="h-freq-${unitId}"></canvas>
+      <div class="dens-wrap">
+        <div class="dens-head">Freq (Hz)</div>
+        <canvas id="d-freq-${unitId}"></canvas>
       </div>
-      <div class="hist-wrap">
-        <div class="hist-head">SOG (kt)</div>
-        <canvas id="h-sog-${unitId}"></canvas>
+      <div class="dens-wrap">
+        <div class="dens-head">SOG (kt)</div>
+        <canvas id="d-sog-${unitId}"></canvas>
       </div>
     </div>`;
   statsUnits.appendChild(statsCol);
@@ -437,11 +469,11 @@ function ensureUnit(unitId){
     sogMean:$(`st-sog-mean-${unitId}`)
   };
 
-  // per-unit hist charts
-  u.hCharts.roll  = makeHistChart(document.getElementById(`h-roll-${unitId}`).getContext('2d'),'Roll',color);
-  u.hCharts.pitch = makeHistChart(document.getElementById(`h-pitch-${unitId}`).getContext('2d'),'Pitch',color);
-  u.hCharts.freq  = makeHistChart(document.getElementById(`h-freq-${unitId}`).getContext('2d'),'Freq',color);
-  u.hCharts.sog   = makeHistChart(document.getElementById(`h-sog-${unitId}`).getContext('2d'),'SOG',color);
+  // per-unit density charts
+  u.dCharts.roll  = makeDensityChart(document.getElementById(`d-roll-${unitId}`).getContext('2d'),'Roll',color);
+  u.dCharts.pitch = makeDensityChart(document.getElementById(`d-pitch-${unitId}`).getContext('2d'),'Pitch',color);
+  u.dCharts.freq  = makeDensityChart(document.getElementById(`d-freq-${unitId}`).getContext('2d'),'Freq',color);
+  u.dCharts.sog   = makeDensityChart(document.getElementById(`d-sog-${unitId}`).getContext('2d'),'SOG',color);
 
   // settings checkbox
   const row=document.createElement('div');
@@ -465,7 +497,7 @@ function ensureUnit(unitId){
       if(map.hasLayer(u.marker)) map.removeLayer(u.marker);
     }
     chartTS.update('none'); chartSOG.update('none');
-    for(const k of Object.keys(u.hCharts)){ u.hCharts[k].update('none'); }
+    for(const k of Object.keys(u.dCharts)){ u.dCharts[k].update('none'); }
   });
 
   if(getRefUnit()===unitId && globalT0===null) resetSyncSeries();
@@ -531,7 +563,7 @@ function pruneOld(nowMs){
   }
 }
 
-// stats (incl. mean SOG) + HISTOGRAM updates
+// stats (incl. mean SOG) + KDE updates
 function recomputePeaksAndStatsAll(){
   const winSec=parseFloat(winNum.value||'10'), minDist=parseFloat($('minDist').value||'300'), minProm=parseFloat($('minProm').value||'5.0');
   for(const id of Object.keys(units)){
@@ -574,16 +606,16 @@ function recomputePeaksAndStatsAll(){
     const fNow = Number.isFinite(fShowR)?fShowR:(Number.isFinite(fShowP)?fShowP:NaN);
     if(u.nowElems.hz) u.nowElems.hz.textContent = isFinite(fNow)? fNow.toFixed(2):'–';
 
-    // -------- Histogram updates (window distributions) --------
+    // -------- Density (KDE) updates (window distributions) --------
     const freqSamples = [];
     for(let i=1;i<rPeaks.length;i++){
       const dt = (rPeaks[i].t - rPeaks[i-1].t) / 1000;
       if(dt > 0) freqSamples.push(1/dt);
     }
-    if(u.hCharts.roll)  updateHistChart(u.hCharts.roll,  rWin);
-    if(u.hCharts.pitch) updateHistChart(u.hCharts.pitch, pWin);
-    if(u.hCharts.freq)  updateHistChart(u.hCharts.freq,  freqSamples);
-    if(u.hCharts.sog)   updateHistChart(u.hCharts.sog,   sogWin);
+    if(u.dCharts.roll)  updateDensityChart(u.dCharts.roll,  rWin);
+    if(u.dCharts.pitch) updateDensityChart(u.dCharts.pitch, pWin);
+    if(u.dCharts.freq)  updateDensityChart(u.dCharts.freq,  freqSamples);
+    if(u.dCharts.sog)   updateDensityChart(u.dCharts.sog,   sogWin);
   }
 }
 
@@ -685,12 +717,12 @@ document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
   const name=b.dataset.tab; ['plot','stats','settings'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
   document.getElementById('tab-'+name).classList.remove('hidden');
   document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
-  // When showing stats, force histograms to resize + update
+  // When showing stats, force density charts to resize + update
   if(name==='stats'){
     for(const id of Object.keys(units)){
       const u=units[id];
-      if(u.hCharts){
-        for(const k of Object.keys(u.hCharts)){ try{ u.hCharts[k].resize(); u.hCharts[k].update('none'); }catch(e){} }
+      if(u.dCharts){
+        for(const k of Object.keys(u.dCharts)){ try{ u.dCharts[k].resize(); u.dCharts[k].update('none'); }catch(e){} }
       }
     }
   }
@@ -804,7 +836,7 @@ document.getElementById('btnClear').addEventListener('click',()=>{
     u.sogTimes.length=0; u.sogVals.length=0; u.sogSeries.length=0;
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=false);
     chartSOG.data.datasets[u.idxSOG].hidden=false;
-    if(u.hCharts){ for(const k of Object.keys(u.hCharts)){ updateHistChart(u.hCharts[k], []); } }
+    if(u.dCharts){ for(const k of Object.keys(u.dCharts)){ updateDensityChart(u.dCharts[k], []); } }
   }
   globalT0=null; syncLastMs=null; chartTS.update('none'); chartSOG.update('none'); log('cleared');
   firstMapFixDone=false; if(mapInited) map.setView([0,0],2);
