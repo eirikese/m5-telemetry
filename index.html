@@ -39,27 +39,13 @@
   .leaflet-container{background:#0b1220}
 
   /* Density (KDE) box on Plot tab: stacked plots, full width */
-  .dgrid{
-    display:grid;
-    grid-template-columns:1fr; /* stack vertically */
-    gap:10px;
-    margin-top:10px;
-  }
+  .dgrid{display:grid;grid-template-columns:1fr;gap:10px;margin-top:10px}
   .dens-wrap{
-    position:relative;
-    height:200px;
-    border:1px solid var(--border);
-    border-radius:8px;
-    padding:6px 6px 4px 6px;
-    background:#0e1730;
-    overflow:hidden;
+    position:relative;height:200px;border:1px solid var(--border);
+    border-radius:8px;padding:6px 6px 4px 6px;background:#0e1730;overflow:hidden
   }
   .dens-head{font-size:11px;color:#92a1bd;margin:2px 0 4px 2px}
-  .dens-wrap canvas{
-    position:absolute;
-    left:0; right:0; bottom:6px; top:22px;
-    width:100% !important; height:auto !important;
-  }
+  .dens-wrap canvas{position:absolute;left:0;right:0;bottom:6px;top:22px;width:100% !important;height:auto !important}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
@@ -135,7 +121,7 @@
               <canvas id="dist-freq"></canvas>
             </div>
           </div>
-          <div class="tiny" style="margin-top:6px;">Each colored curve is one athlete. Roll/Pitch X is −40°…0°…+40°. Frequency X is 0.1–10 Hz. Y is % of that athlete’s peak density (0–110%).</div>
+          <div class="tiny" style="margin-top:6px;">Roll/Pitch X: −40°…0°…+40°. Frequency X: 0.1–10 Hz. Y: % of that athlete’s peak (0–110%).</div>
         </div>
       </div>
     </section>
@@ -194,6 +180,23 @@
               </div>
               <div class="tiny">Speed is computed from a linear fit of XY position over this window (1 Hz GNSS-friendly).</div>
             </div>
+
+            <!-- NEW: KDE smoothing controls -->
+            <div style="grid-column:1/-1;">
+              <label>Distribution smoothing — Roll/Pitch (× bandwidth)</label>
+              <div class="range-row">
+                <input id="kdeFactorAngRange" type="range" min="0.3" max="3" step="0.1" value="1.0"/>
+                <input id="kdeFactorAng" type="number" min="0.3" max="3" step="0.1" value="1.0" style="width:90px"/>
+              </div>
+            </div>
+            <div style="grid-column:1/-1;">
+              <label>Distribution smoothing — Frequency (× bandwidth)</label>
+              <div class="range-row">
+                <input id="kdeFactorFreqRange" type="range" min="0.3" max="3" step="0.1" value="1.0"/>
+                <input id="kdeFactorFreq" type="number" min="0.3" max="3" step="0.1" value="1.0" style="width:90px"/>
+              </div>
+            </div>
+            <!-- END NEW -->
           </div>
         </div>
 
@@ -270,6 +273,16 @@ function getSogWinSec(){ return clamp(parseInt(sogNum.value||'8',10),3,30); }
 sogRange.addEventListener('input',e=>sogNum.value=e.target.value);
 sogNum.addEventListener('change',e=>sogRange.value=e.target.value);
 
+// NEW: KDE smoothing controls
+const kdeAngRange=$('kdeFactorAngRange'), kdeAngNum=$('kdeFactorAng');
+const kdeFreqRange=$('kdeFactorFreqRange'), kdeFreqNum=$('kdeFactorFreq');
+function getKdeFactorAngles(){ return clamp(parseFloat(kdeAngNum.value||'1.0'),0.3,3); }
+function getKdeFactorFreq(){ return clamp(parseFloat(kdeFreqNum.value||'1.0'),0.3,3); }
+kdeAngRange.addEventListener('input',e=>{ kdeAngNum.value=e.target.value; updateUnifiedDistributions(); });
+kdeAngNum.addEventListener('change',e=>{ kdeAngRange.value=e.target.value; updateUnifiedDistributions(); });
+kdeFreqRange.addEventListener('input',e=>{ kdeFreqNum.value=e.target.value; updateUnifiedDistributions(); });
+kdeFreqNum.addEventListener('change',e=>{ kdeFreqRange.value=e.target.value; updateUnifiedDistributions(); });
+
 // sync
 let syncRefMode='auto';
 const syncRefSelect=$('syncRef');
@@ -317,18 +330,17 @@ function linspace(min,max,n){ const a=new Array(n); const step=(max-min)/(n-1); 
 function stddev(arr){ if(!arr.length) return 0; const m=arr.reduce((s,v)=>s+v,0)/arr.length; return Math.sqrt(arr.reduce((s,v)=>s+(v-m)*(v-m),0)/arr.length); }
 function kdeBandwidth(arr){ if(arr.length<2) return 1; const s=stddev(arr); return 1.06*s*Math.pow(arr.length,-1/5); }
 function gaussian(u){ return Math.exp(-0.5*u*u)/Math.sqrt(2*Math.PI); }
-function kdeOnGrid(values, xs){
+function kdeOnGrid(values, xs, factor=1){
   const x=(values||[]).filter(Number.isFinite);
   const n=x.length; if(!n) return xs.map(_=>0);
-  let h=kdeBandwidth(x);
+  let h=kdeBandwidth(x)*factor;
   if(!Number.isFinite(h)||h<=1e-6){
     const span=(Math.max(...x)-Math.min(...x))||1;
-    h=Math.max(span*0.05,1e-3);
+    h=Math.max(span*0.05,1e-3)*factor;
   }
   const invnh=1/(n*h);
   return xs.map(x0=>{
-    let s=0;
-    for(let i=0;i<n;i++) s+=gaussian((x0-x[i])/h);
+    let s=0; for(let i=0;i<n;i++) s+=gaussian((x0-x[i])/h);
     return s*invnh;
   });
 }
@@ -347,19 +359,9 @@ function makeDensityChartMulti(ctx, label, xConf){
         x:{
           type, min, max,
           grid:{color:'#2a385a',tickLength:4},
-          ticks:{
-            color:'#dfe7ff', padding:6,
-            maxRotation:0,minRotation:0,
-            autoSkip:true, autoSkipPadding:8, stepSize:step,
-            callback:(v)=>String(v)
-          }
+          ticks:{color:'#dfe7ff', padding:6, maxRotation:0, minRotation:0, stepSize:step, callback:(v)=>String(v)}
         },
-        y:{
-          min:0, max:110,
-          grid:{color:'#2a385a',tickLength:4},
-          ticks:{display:false},
-          title:{display:false}
-        }
+        y:{min:0, max:110, grid:{color:'#2a385a',tickLength:4}, ticks:{display:false}, title:{display:false}}
       },
       plugins:{
         legend:{position:'bottom',labels:{boxWidth:10,boxHeight:10,usePointStyle:true,pointStyle:'line'}},
@@ -474,11 +476,9 @@ function ensureUnit(unitId){
     u.visible=e.target.checked;
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=!u.visible);
     chartSOG.data.datasets[u.idxSOG].hidden=!u.visible;
-
     const rI=distIdx.roll[unitId]; if(rI!=null) distCharts.roll.data.datasets[rI].hidden=!u.visible;
     const pI=distIdx.pitch[unitId]; if(pI!=null) distCharts.pitch.data.datasets[pI].hidden=!u.visible;
     const fI=distIdx.freq[unitId];  if(fI!=null) distCharts.freq.data.datasets[fI].hidden=!u.visible;
-
     chartTS.update('none'); chartSOG.update('none');
     if(distCharts.roll) distCharts.roll.update('none');
     if(distCharts.pitch) distCharts.pitch.update('none');
@@ -566,17 +566,16 @@ function updateUnifiedDistributions(){
   if(!distCharts.roll||!distCharts.pitch||!distCharts.freq) return;
   const winSec=parseFloat(winNum.value||'30');
 
-  if(!distCharts.xsDeg){
-    distCharts.xsDeg=linspace(DEG_RANGE.min,DEG_RANGE.max,DEG_RANGE.gridCnt);
-  }
-  if(!distCharts.xsHz){
-    distCharts.xsHz=linspace(FREQ_RANGE.min,FREQ_RANGE.max,FREQ_RANGE.gridCnt);
-  }
+  if(!distCharts.xsDeg){ distCharts.xsDeg=linspace(DEG_RANGE.min,DEG_RANGE.max,DEG_RANGE.gridCnt); }
+  if(!distCharts.xsHz){  distCharts.xsHz =linspace(FREQ_RANGE.min,FREQ_RANGE.max,FREQ_RANGE.gridCnt); }
 
   // clear/hide existing
   for(const ds of distCharts.roll.data.datasets){ ds.hidden=true; ds.data.length=0; }
   for(const ds of distCharts.pitch.data.datasets){ ds.hidden=true; ds.data.length=0; }
   for(const ds of distCharts.freq.data.datasets){ ds.hidden=true; ds.data.length=0; }
+
+  const angK=getKdeFactorAngles();
+  const frqK=getKdeFactorFreq();
 
   for(const id of Object.keys(units)){
     const u=units[id];
@@ -595,7 +594,7 @@ function updateUnifiedDistributions(){
 
     // roll density
     if(rWin.length){
-      let ys=kdeOnGrid(rWin,distCharts.xsDeg);
+      let ys=kdeOnGrid(rWin,distCharts.xsDeg,angK);
       const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
       distCharts.roll.data.datasets[rI].data=points(distCharts.xsDeg,ys);
       distCharts.roll.data.datasets[rI].hidden=false;
@@ -603,7 +602,7 @@ function updateUnifiedDistributions(){
 
     // pitch density
     if(pWin.length){
-      let ys=kdeOnGrid(pWin,distCharts.xsDeg);
+      let ys=kdeOnGrid(pWin,distCharts.xsDeg,angK);
       const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
       distCharts.pitch.data.datasets[pI].data=points(distCharts.xsDeg,ys);
       distCharts.pitch.data.datasets[pI].hidden=false;
@@ -613,7 +612,7 @@ function updateUnifiedDistributions(){
     const rPeaks=detectPeaks(rWin,tWin,parseFloat($('minDist').value||'300'),parseFloat($('minProm').value||'5.0'));
     const fSamples=freqSamplesFromPeaks(rPeaks);
     if(fSamples.length){
-      let ys=kdeOnGrid(fSamples,distCharts.xsHz);
+      let ys=kdeOnGrid(fSamples,distCharts.xsHz,frqK);
       const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
       distCharts.freq.data.datasets[fI].data=points(distCharts.xsHz,ys);
       distCharts.freq.data.datasets[fI].hidden=false;
@@ -887,7 +886,6 @@ document.getElementById('btnClear').addEventListener('click',()=>{
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=false);
     chartSOG.data.datasets[u.idxSOG].hidden=false;
   }
-  // reset distributions
   if(distCharts.roll){ for(const ds of distCharts.roll.data.datasets){ ds.data.length=0; ds.hidden=true; } distCharts.roll.update('none'); }
   if(distCharts.pitch){ for(const ds of distCharts.pitch.data.datasets){ ds.data.length=0; ds.hidden=true; } distCharts.pitch.update('none'); }
   if(distCharts.freq){ for(const ds of distCharts.freq.data.datasets){ ds.data.length=0; ds.hidden=true; } distCharts.freq.update('none'); }
