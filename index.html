@@ -37,9 +37,15 @@
   .uNums .num{color:var(--ucolor)}
   #map{height:40vh;min-height:260px;border-radius:12px;overflow:hidden}
   .leaflet-container{background:#0b1220}
+
+  /* NEW: boxplot sizing */
+  .bp-wrap{margin-top:10px}
+  .bp-wrap canvas{width:100%;height:220px}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
+<!-- NEW: boxplot plugin -->
+<script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot@4.4.3"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
 <body>
@@ -307,6 +313,8 @@ function ensureUnit(unitId){
     poly:null, marker:null,
     // UI elements
     nowElems:{}, statsElems:{},
+    // charts
+    boxChart:null,
     // freq memory
     lastRollHz:NaN,lastRollAt:0,lastPitchHz:NaN,lastPitchAt:0
   };
@@ -350,7 +358,7 @@ function ensureUnit(unitId){
     sog:$(`now-sog-${unitId}`), sogMean:$(`now-sogmean-${unitId}`), hdg:$(`now-hdg-${unitId}`), ll:$(`now-ll-${unitId}`)
   };
 
-  // Stats card (add Mean SOG)
+  // Stats card + BOX PLOT area
   const statsCol=document.createElement('div'); statsCol.className='card half unitStats'; statsCol.style.setProperty('--ucolor',color);
   statsCol.innerHTML=`<div style="font-weight:700;margin-bottom:8px;"><span class="unitTag" style="background:${color}">${unitId}</span> — window stats</div>
     <div class="grid">
@@ -363,6 +371,10 @@ function ensureUnit(unitId){
       <div><div class="small">Freq Roll (Hz)</div><div class="num" id="st-roll-hz-${unitId}">–</div></div>
       <div><div class="small">Freq Pitch (Hz)</div><div class="num" id="st-pitch-hz-${unitId}">–</div></div>
       <div style="grid-column:1/-1"><div class="small">Mean SOG (kt)</div><div class="num" id="st-sog-mean-${unitId}">–</div></div>
+    </div>
+    <div class="bp-wrap">
+      <div class="small" style="margin-bottom:6px;">Window distributions (box plots): Roll, Pitch, Freq, SOG</div>
+      <canvas id="bp-${unitId}"></canvas>
     </div>`;
   statsUnits.appendChild(statsCol);
   u.statsElems={
@@ -372,6 +384,32 @@ function ensureUnit(unitId){
     rHz:$(`st-roll-hz-${unitId}`), pHz:$(`st-pitch-hz-${unitId}`),
     sogMean:$(`st-sog-mean-${unitId}`)
   };
+
+  // per-unit boxplot chart
+  const bpCtx = document.getElementById(`bp-${unitId}`).getContext('2d');
+  u.boxChart = new Chart(bpCtx, {
+    type: 'boxplot',
+    data: {
+      labels: ['Roll (°)', 'Pitch (°)', 'Freq (Hz)', 'SOG (kt)'],
+      datasets: [{
+        label: `${unitId} window`,
+        data: [[], [], [], []],
+        borderWidth: 1.5,
+        outlierRadius: 2,
+        borderColor: color,
+        backgroundColor: color + '33' // translucent fill
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#dfe7ff' }, grid: { color: '#2a385a' } },
+        y: { ticks: { color: '#dfe7ff' }, grid: { color: '#2a385a' } }
+      }
+    }
+  });
 
   // settings checkbox
   const row=document.createElement('div');
@@ -395,6 +433,7 @@ function ensureUnit(unitId){
       if(map.hasLayer(u.marker)) map.removeLayer(u.marker);
     }
     chartTS.update('none'); chartSOG.update('none');
+    if(u.boxChart) u.boxChart.update('none');
   });
 
   if(getRefUnit()===unitId && globalT0===null) resetSyncSeries();
@@ -462,7 +501,7 @@ function pruneOld(nowMs){
   }
 }
 
-// stats (incl. mean SOG)
+// stats (incl. mean SOG) + BOX PLOTS
 function recomputePeaksAndStatsAll(){
   const winSec=parseFloat(winNum.value||'10'), minDist=parseFloat($('minDist').value||'300'), minProm=parseFloat($('minProm').value||'5.0');
   for(const id of Object.keys(units)){
@@ -504,6 +543,22 @@ function recomputePeaksAndStatsAll(){
 
     const fNow = Number.isFinite(fShowR)?fShowR:(Number.isFinite(fShowP)?fShowP:NaN);
     if(u.nowElems.hz) u.nowElems.hz.textContent = isFinite(fNow)? fNow.toFixed(2):'–';
+
+    // -------- NEW: Box plot datasets (window distributions) --------
+    const freqSamples = [];
+    for(let i=1;i<rPeaks.length;i++){
+      const dt = (rPeaks[i].t - rPeaks[i-1].t) / 1000;
+      if(dt > 0) freqSamples.push(1/dt);
+    }
+    if(u.boxChart){
+      u.boxChart.data.datasets[0].data = [
+        rWin,          // Roll (deg)
+        pWin,          // Pitch (deg)
+        freqSamples,   // Frequency (Hz) from roll peaks
+        sogWin         // SOG (kt)
+      ];
+      u.boxChart.update('none');
+    }
   }
 }
 
@@ -612,6 +667,13 @@ document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
   const name=b.dataset.tab; ['plot','stats','settings'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
   document.getElementById('tab-'+name).classList.remove('hidden');
   document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
+  // NEW: when showing stats, force boxplot charts to resize correctly
+  if(name==='stats'){
+    for(const id of Object.keys(units)){
+      const u=units[id];
+      if(u.boxChart){ try{ u.boxChart.resize(); }catch(e){} }
+    }
+  }
 }));
 
 // ---- Unlock & connect ----
@@ -723,6 +785,10 @@ document.getElementById('btnClear').addEventListener('click',()=>{
     u.sogTimes.length=0; u.sogVals.length=0; u.sogSeries.length=0;
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=false);
     chartSOG.data.datasets[u.idxSOG].hidden=false;
+    if(u.boxChart){
+      u.boxChart.data.datasets[0].data=[[],[],[],[]];
+      u.boxChart.update('none');
+    }
   }
   globalT0=null; syncLastMs=null; chartTS.update('none'); chartSOG.update('none'); log('cleared');
   firstMapFixDone=false; if(mapInited) map.setView([0,0],2);
