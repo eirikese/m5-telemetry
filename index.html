@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>TrollSports Live v1.5.3</title>
+<title>TrollSports Live v1.5.2</title>
 <meta name="theme-color" content="#0b1220"/>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -38,7 +38,7 @@
   #map{height:40vh;min-height:260px;border-radius:12px;overflow:hidden}
   .leaflet-container{background:#0b1220}
 
-  /* Fix: constrain per-unit boxplot area and keep canvas from expanding parent */
+  /* Constrain per-unit boxplot area and keep canvas from expanding parent */
   .bp-wrap{
     margin-top:10px;
     height:240px;
@@ -57,20 +57,45 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
 <!-- Boxplot plugin -->
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot@4.4.3"></script>
-<!-- Register boxplot controllers/elements -->
+<!-- Robust registration for various UMD globals -->
 <script>
 (function(){
-  const box = window['chartjs-chart-boxplot'];
-  if (box && window.Chart) {
-    Chart.register(
-      box.BoxPlotController,
-      box.ViolinController,
-      box.BoxAndWhiskersElement,
-      box.ViolinElement
-    );
-  } else {
-    console.warn('chartjs-chart-boxplot UMD not found on window');
+  const candidates = [
+    window['chartjs-chart-boxplot'],
+    window.ChartBoxPlot,
+    window.ChartBoxWhisker,
+    window['@sgratzl/chartjs-chart-boxplot']
+  ].filter(Boolean);
+
+  function tryRegister(mod){
+    try{
+      // Most UMD builds expose individual controllers/elements
+      const parts = Object.values(mod || {});
+      const registrables = parts.filter(p =>
+        p && (p.id || p.defaults || p.prototype && p.prototype.datasetElementType || p.prototype && p.prototype.dataElementType)
+      );
+      if (registrables.length && window.Chart) {
+        Chart.register(...registrables);
+        return true;
+      }
+    }catch(e){ /* noop */ }
+    return false;
   }
+
+  let ok = false;
+  for (const m of candidates){ if(tryRegister(m)){ ok = true; break; } }
+  if(!ok && window.Chart && window['chartjs-chart-boxplot']){
+    // Fallback to named exports if present
+    const b = window['chartjs-chart-boxplot'];
+    try{
+      Chart.register(
+        b.BoxPlotController, b.ViolinController,
+        b.BoxAndWhiskersElement, b.ViolinElement
+      );
+      ok = true;
+    }catch(e){}
+  }
+  if(!ok) console.warn('chartjs-chart-boxplot registration failed — box plots may not render.');
 })();
 </script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
@@ -78,7 +103,7 @@
 <body>
   <div class="topbar">
     <div class="app-title">TrollSports Live</div><div class="spacer"></div>
-    <div class="ver">v1.5.3</div>
+    <div class="ver">v1.5.2</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -209,7 +234,7 @@
   </div>
 
 <script>
-const APP_VERSION="v1.5.3";
+const APP_VERSION="v1.5.2";
 const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9";
 const $=id=>document.getElementById(id);
 
@@ -241,13 +266,12 @@ function validLatLon(lat,lon){
 // geo helpers
 const Rm=6371000; // meters
 function projLocalMeters(lat0,lon0,lat,lon){
-  // equirectangular projection around (lat0,lon0)
   const toR=a=>a*Math.PI/180;
   const x = (toR(lon)-toR(lon0)) * Math.cos(toR(lat0)) * Rm;
   const y = (toR(lat)-toR(lat0)) * Rm;
   return {x,y};
 }
-function bearingFromV(vx,vy){ // vx: East m/s, vy: North m/s
+function bearingFromV(vx,vy){
   const toD=a=>a*180/Math.PI;
   let brg = toD(Math.atan2(vx, vy)); // atan2(East, North)
   if(brg<0) brg+=360;
@@ -321,28 +345,18 @@ function ensureUnit(unitId){
   const opt=document.createElement('option'); opt.value=unitId; opt.textContent=unitId; syncRefSelect.appendChild(opt);
 
   const u=units[unitId]={color,visible:true,
-    // raw arrivals (roll/pitch)
     times:[], roll:[], pitch:[],
-    // synced series for plot
     seriesRoll:[], seriesPitch:[],
-    // peak markers (small circles)
     seriesRollPk:[], seriesPitchPk:[],
-    // GNSS
     gnssLatLngs:[],
-    lat0:null, lon0:null, posBuf:[], // {t,lat,lon,x,y}
-    // SOG/heading
+    lat0:null, lon0:null, posBuf:[],
     sogEMA:null, heading:null,
     sogTimes:[], sogVals:[], sogSeries:[],
-    // dataset idx
     idxRoll:null, idxPitch:null, idxRollPk:null, idxPitchPk:null,
     idxSOG:null,
-    // map layers
     poly:null, marker:null,
-    // UI elements
     nowElems:{}, statsElems:{},
-    // charts
     boxChart:null,
-    // freq memory
     lastRollHz:NaN,lastRollAt:0,lastPitchHz:NaN,lastPitchAt:0
   };
 
@@ -352,7 +366,7 @@ function ensureUnit(unitId){
   chartTS.data.datasets.push(rollDs); u.idxRoll=chartTS.data.datasets.length-1;
   chartTS.data.datasets.push(pitchDs); u.idxPitch=chartTS.data.datasets.length-1;
 
-  // peak markers (small circles)
+  // peak markers
   const rollPk={label:`${unitId} roll peaks`,type:'scatter',data:u.seriesRollPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:4,pointStyle:'circle',showLine:false};
   const pitchPk={label:`${unitId} pitch peaks`,type:'scatter',data:u.seriesPitchPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:4,pointStyle:'circle',showLine:false};
   chartTS.data.datasets.push(rollPk); u.idxRollPk=chartTS.data.datasets.length-1;
@@ -522,9 +536,7 @@ function pruneOld(nowMs){
     while(u.times.length && u.times[0]<nowMs-keepMs){u.times.shift();u.roll.shift();u.pitch.shift();}
     while(u.seriesRoll.length && (globalT0 + u.seriesRoll[0].x*1000) < nowMs-keepMs){u.seriesRoll.shift();u.seriesPitch.shift();}
     while(u.gnssLatLngs.length>GNSS_KEEP){u.gnssLatLngs.shift(); if(u.poly) u.poly.setLatLngs(u.gnssLatLngs);}
-    // prune regression buffer
     while(u.posBuf.length && u.posBuf[0].t < nowMs - getSogWinSec()*1000){u.posBuf.shift();}
-    // SOG series
     while(u.sogTimes.length && u.sogTimes[0]<nowMs-keepMs){u.sogTimes.shift();u.sogVals.shift();}
     while(u.sogSeries.length && (globalT0 + u.sogSeries[0].x*1000) < nowMs-keepMs){u.sogSeries.shift();}
   }
@@ -634,15 +646,13 @@ function appendSyncedPoint(t_ref){
 // ---- velocity from regression over a sliding window ----
 function updateVelocityFromWindow(u, t, lat, lon){
   if(u.lat0===null||u.lon0===null){ u.lat0=lat; u.lon0=lon; }
-  const p = projLocalMeters(u.lat0,u.lon0,lat,lon); // {x,y}
+  const p = projLocalMeters(u.lat0,u.lon0,lat,lon);
   u.posBuf.push({t,lat,lon,x:p.x,y:p.y});
-  // keep only last N seconds
   const winMs = getSogWinSec()*1000;
   while(u.posBuf.length && u.posBuf[0].t < t - winMs){ u.posBuf.shift(); }
   if(u.posBuf.length<2) return;
 
-  // linear regression x(t), y(t) on seconds
-  const times = u.posBuf.map(pt => (pt.t - u.posBuf[0].t)/1000); // start at 0
+  const times = u.posBuf.map(pt => (pt.t - u.posBuf[0].t)/1000);
   const xs = u.posBuf.map(pt => pt.x), ys = u.posBuf.map(pt => pt.y);
   const n = times.length;
   let mt=0,mx=0,my=0; for(let i=0;i<n;i++){ mt+=times[i]; mx+=xs[i]; my+=ys[i]; }
@@ -650,19 +660,14 @@ function updateVelocityFromWindow(u, t, lat, lon){
   let sTT=0,sTX=0,sTY=0;
   for(let i=0;i<n;i++){ const dt=times[i]-mt; sTT+=dt*dt; sTX+=dt*(xs[i]-mx); sTY+=dt*(ys[i]-my); }
   if(sTT<=0) return;
-  const vx = sTX/sTT; // m/s
-  const vy = sTY/sTT; // m/s
+  const vx = sTX/sTT; const vy = sTY/sTT;
   const spd_mps = Math.hypot(vx,vy);
   const spd_kt = spd_mps * KNOTS_PER_MPS;
 
-  // gentle EMA on top (optional)
   const alpha = 0.2;
   u.sogEMA = (u.sogEMA==null) ? spd_kt : (u.sogEMA*(1-alpha) + spd_kt*alpha);
-
-  // heading when moving >2 kt
   u.heading = (u.sogEMA>2) ? bearingFromV(vx,vy) : null;
 
-  // series append
   const xPlot=(t-globalT0)/1000;
   u.sogTimes.push(t); u.sogVals.push(u.sogEMA); u.sogSeries.push({x:xPlot,y:u.sogEMA});
 }
@@ -696,11 +701,11 @@ document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
   const name=b.dataset.tab; ['plot','stats','settings'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
   document.getElementById('tab-'+name).classList.remove('hidden');
   document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
-  // When showing stats, force boxplot charts to resize correctly
+  // When showing stats, force boxplot charts to resize + update
   if(name==='stats'){
     for(const id of Object.keys(units)){
       const u=units[id];
-      if(u.boxChart){ try{ u.boxChart.resize(); }catch(e){} }
+      if(u.boxChart){ try{ u.boxChart.resize(); u.boxChart.update('none'); }catch(e){} }
     }
   }
 }));
@@ -760,7 +765,6 @@ function connect(){
       const hasFix=validLatLon(lat,lon);
 
       if(hasFix){
-        // map
         u.gnssLatLngs.push([lat,lon]);
         if(u.gnssLatLngs.length>GNSS_KEEP) u.gnssLatLngs.shift();
         u.poly.setLatLngs(u.gnssLatLngs);
