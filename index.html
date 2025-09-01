@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>TrollSports Live v1.5.2</title>
+<title>TrollSports Live v1.5.3</title>
 <meta name="theme-color" content="#0b1220"/>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -38,17 +38,16 @@
   #map{height:40vh;min-height:260px;border-radius:12px;overflow:hidden}
   .leaflet-container{background:#0b1220}
 
-  /* NEW: boxplot sizing */
   /* Fix: constrain per-unit boxplot area and keep canvas from expanding parent */
   .bp-wrap{
     margin-top:10px;
-    height:240px;           /* fixed, predictable height */
+    height:240px;
     position:relative;
     overflow:hidden;
   }
   .bp-wrap canvas{
     position:absolute;
-    inset:0;                /* fill the wrapper */
+    inset:0;
     width:100% !important;
     height:100% !important;
     display:block;
@@ -56,10 +55,10 @@
 </style>
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
-<!-- NEW: boxplot plugin -->
+<!-- Boxplot plugin -->
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot@4.4.3"></script>
+<!-- Register boxplot controllers/elements -->
 <script>
-/* Explicit registration for Chart.js v4 + UMD build of chartjs-chart-boxplot */
 (function(){
   const box = window['chartjs-chart-boxplot'];
   if (box && window.Chart) {
@@ -74,13 +73,12 @@
   }
 })();
 </script>
-
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
 <body>
   <div class="topbar">
     <div class="app-title">TrollSports Live</div><div class="spacer"></div>
-    <div class="ver">v1.5.2</div>
+    <div class="ver">v1.5.3</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -211,7 +209,7 @@
   </div>
 
 <script>
-const APP_VERSION="v1.5.2";
+const APP_VERSION="v1.5.3";
 const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9";
 const $=id=>document.getElementById(id);
 
@@ -369,7 +367,7 @@ function ensureUnit(unitId){
   u.marker = L.circleMarker([0,0], {radius:6, color, fillColor:color, fillOpacity:1}).addTo(map);
   u.poly.setStyle({opacity:0}); u.marker.setStyle({opacity:0, fillOpacity:0});
 
-  // Now card (adds SOG mean + heading)
+  // Now card
   const nowCard=document.createElement('div'); nowCard.className='unitNow uNums'; nowCard.style.setProperty('--ucolor',color);
   nowCard.innerHTML=`<div class="unitTag" style="background:${color}">${unitId}</div>
     <div class="grid">
@@ -426,14 +424,14 @@ function ensureUnit(unitId){
         borderWidth: 1.5,
         outlierRadius: 2,
         borderColor: color,
-        backgroundColor: color + '33' // translucent fill
+        backgroundColor: color + '33'
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      animation: false,       // <— add
-      resizeDelay: 0,         // <— add
+      animation: false,
+      resizeDelay: 0,
       plugins: { legend: { display: false } },
       scales: {
         x: { ticks: { color: '#dfe7ff' }, grid: { color: '#2a385a' } },
@@ -502,7 +500,7 @@ function applyViewWindow(val){currentViewSec=Math.max(5,Math.min(600,parseInt(va
 viewRange.addEventListener('input',e=>applyViewWindow(e.target.value)); viewNum.addEventListener('change',e=>applyViewWindow(e.target.value));
 
 const winRange=$('winSecRange'), winNum=$('winSec');
-function applyWindow(val){const v=Math.max(5,Math.min(600,parseInt(val||'10',10))); winRange.value=v; winNum.value=v; const now=syncLastMs||Date.now(); recomputePeaksAndStatsAll(); chartTS.update('none'); chartSOG.update('none');}
+function applyWindow(val){const v=Math.max(5,Math.min(600,parseInt(val||'10',10))); winRange.value=v; winNum.value=v; recomputePeaksAndStatsAll(); chartTS.update('none'); chartSOG.update('none');}
 winRange.addEventListener('input',e=>applyWindow(e.target.value)); winNum.addEventListener('change',e=>applyWindow(e.target.value));
 
 function updateAxisRange(){
@@ -575,7 +573,7 @@ function recomputePeaksAndStatsAll(){
     const fNow = Number.isFinite(fShowR)?fShowR:(Number.isFinite(fShowP)?fShowP:NaN);
     if(u.nowElems.hz) u.nowElems.hz.textContent = isFinite(fNow)? fNow.toFixed(2):'–';
 
-    // -------- NEW: Box plot datasets (window distributions) --------
+    // -------- Box plot datasets (window distributions) --------
     const freqSamples = [];
     for(let i=1;i<rPeaks.length;i++){
       const dt = (rPeaks[i].t - rPeaks[i-1].t) / 1000;
@@ -633,7 +631,7 @@ function appendSyncedPoint(t_ref){
   chartTS.update('none'); chartSOG.update('none');
 }
 
-// ---- NEW: velocity from regression over a sliding window ----
+// ---- velocity from regression over a sliding window ----
 function updateVelocityFromWindow(u, t, lat, lon){
   if(u.lat0===null||u.lon0===null){ u.lat0=lat; u.lon0=lon; }
   const p = projLocalMeters(u.lat0,u.lon0,lat,lon); // {x,y}
@@ -698,7 +696,7 @@ document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
   const name=b.dataset.tab; ['plot','stats','settings'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
   document.getElementById('tab-'+name).classList.remove('hidden');
   document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
-  // NEW: when showing stats, force boxplot charts to resize correctly
+  // When showing stats, force boxplot charts to resize correctly
   if(name==='stats'){
     for(const id of Object.keys(units)){
       const u=units[id];
