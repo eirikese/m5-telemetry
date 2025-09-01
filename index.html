@@ -39,13 +39,42 @@
   .leaflet-container{background:#0b1220}
 
   /* NEW: boxplot sizing */
-  .bp-wrap{margin-top:10px}
-  .bp-wrap canvas{width:100%;height:220px}
+  /* Fix: constrain per-unit boxplot area and keep canvas from expanding parent */
+  .bp-wrap{
+    margin-top:10px;
+    height:240px;           /* fixed, predictable height */
+    position:relative;
+    overflow:hidden;
+  }
+  .bp-wrap canvas{
+    position:absolute;
+    inset:0;                /* fill the wrapper */
+    width:100% !important;
+    height:100% !important;
+    display:block;
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
 <!-- NEW: boxplot plugin -->
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot@4.4.3"></script>
+<script>
+/* Explicit registration for Chart.js v4 + UMD build of chartjs-chart-boxplot */
+(function(){
+  const box = window['chartjs-chart-boxplot'];
+  if (box && window.Chart) {
+    Chart.register(
+      box.BoxPlotController,
+      box.ViolinController,
+      box.BoxAndWhiskersElement,
+      box.ViolinElement
+    );
+  } else {
+    console.warn('chartjs-chart-boxplot UMD not found on window');
+  }
+})();
+</script>
+
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 </head>
 <body>
@@ -403,6 +432,8 @@ function ensureUnit(unitId){
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      animation: false,       // <— add
+      resizeDelay: 0,         // <— add
       plugins: { legend: { display: false } },
       scales: {
         x: { ticks: { color: '#dfe7ff' }, grid: { color: '#2a385a' } },
