@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>TrollSports Live v1.5.7</title>
+<title>TrollSports Live v1.5.8</title>
 <meta name="theme-color" content="#0b1220"/>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -68,7 +68,7 @@
 <body>
   <div class="topbar">
     <div class="app-title">TrollSports Live</div><div class="spacer"></div>
-    <div class="ver">v1.5.7</div>
+    <div class="ver">v1.5.8</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -199,7 +199,7 @@
   </div>
 
 <script>
-const APP_VERSION="v1.5.7";
+const APP_VERSION="v1.5.8";
 const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9";
 const $=id=>document.getElementById(id);
 
@@ -345,11 +345,19 @@ function kdeEstimate(values, gridCount=120, pad=0.1, fixedRange=null){
   return {xs, ys};
 }
 function makeDensityChart(ctx, label, color, xOverrides=null){
-  const xScale = {
+  // Custom x axis ticks and y axis (no ticks)
+  let xScale = {
     ticks:{color:'#dfe7ff'},
     grid:{color:'#2a385a', tickLength:4},
     title:{display:false}
   };
+  if(label==='Roll' || label==='Pitch') {
+    xScale.min = -45; xScale.max = 45; xScale.ticks.stepSize = 10; xScale.ticks.callback = (v)=>String(Math.round(v));
+  } else if(label==='SOG') {
+    xScale.ticks.stepSize = 0.5;
+  } else if(label==='Freq') {
+    xScale.min = 0.1; xScale.max = 5; xScale.ticks.stepSize = 1; xScale.ticks.callback = (v)=>v.toFixed(1);
+  }
   if(xOverrides){
     if(xOverrides.min!=null) xScale.min = xOverrides.min;
     if(xOverrides.max!=null) xScale.max = xOverrides.max;
@@ -376,11 +384,7 @@ function makeDensityChart(ctx, label, color, xOverrides=null){
         y:{
           min:0, max:100,
           grid:{color:'#2a385a', tickLength:4},
-          ticks:{
-            color:'#dfe7ff',
-            stepSize:20,
-            callback:(v)=>`${Math.round(v)}%`
-          },
+          ticks:{display:false},
           title:{display:false}
         }
       },
@@ -505,11 +509,8 @@ function ensureUnit(unitId){
   };
 
   // Density charts
-  // Roll & Pitch: fixed x limits [-45, 45], ticks every 15°, no decimals
-  const xFixed = {min:-45, max:45, stepSize:15, noDecimals:true};
-  u.dCharts.roll  = makeDensityChart(document.getElementById(`d-roll-${unitId}`).getContext('2d'),'Roll',color,xFixed);
-  u.dCharts.pitch = makeDensityChart(document.getElementById(`d-pitch-${unitId}`).getContext('2d'),'Pitch',color,xFixed);
-  // Freq & SOG: auto x
+  u.dCharts.roll  = makeDensityChart(document.getElementById(`d-roll-${unitId}`).getContext('2d'),'Roll',color,null);
+  u.dCharts.pitch = makeDensityChart(document.getElementById(`d-pitch-${unitId}`).getContext('2d'),'Pitch',color,null);
   u.dCharts.freq  = makeDensityChart(document.getElementById(`d-freq-${unitId}`).getContext('2d'),'Freq',color,null);
   u.dCharts.sog   = makeDensityChart(document.getElementById(`d-sog-${unitId}`).getContext('2d'),'SOG',color,null);
 
