@@ -315,7 +315,7 @@ function kdeBandwidth(arr){
   return 1.06 * s * Math.pow(arr.length, -1/5);
 }
 function gaussian(u){ return Math.exp(-0.5*u*u)/Math.sqrt(2*Math.PI); }
-function kdeEstimate(values, gridCount=120, pad=0.1, fixedRange=null){
+function kdeEstimate(values, gridCount=160, pad=0.05, fixedRange=null){
   const x = (values||[]).filter(Number.isFinite);
   if(x.length===0){
     const [mn,mx]=fixedRange??[0,1];
@@ -344,24 +344,35 @@ function kdeEstimate(values, gridCount=120, pad=0.1, fixedRange=null){
   });
   return {xs, ys};
 }
+
+/* ====== REWRITTEN: density chart builder with neat ticks + padding ====== */
 function makeDensityChart(ctx, label, color, xOverrides=null){
-  // Custom x axis ticks and y axis (no ticks)
+  // Base x-axis config with flat labels and padding
   let xScale = {
-    ticks:{color:'#dfe7ff'},
+    ticks:{
+      color:'#dfe7ff',
+      padding:6,          // extra space around tick labels
+      maxRotation:0,      // no angled labels
+      minRotation:0
+    },
     grid:{color:'#2a385a', tickLength:4},
     title:{display:false}
   };
+
+  // Default ranges/steps by chart label
   if(label==='Roll' || label==='Pitch') {
-    xScale.min = -45; xScale.max = 45; xScale.ticks.stepSize = 10; xScale.ticks.callback = (v)=>String(Math.round(v));
-    xScale.ticks.maxRotation = 0;
-    xScale.ticks.minRotation = 0;
+    xScale.min = -45; xScale.max = 45;
+    xScale.ticks.stepSize = 10;                       // 10° increments
+    xScale.ticks.callback = (v)=>String(Math.round(v));
   } else if(label==='SOG') {
-    xScale.ticks.stepSize = 0.5;
+    xScale.ticks.stepSize = 0.5;                      // 0.5 kt increments
+    xScale.ticks.callback = (v)=>v.toFixed(1);
   } else if(label==='Freq') {
-    // No fixed min/max for frequency, just 1 Hz increments
-    xScale.ticks.stepSize = 1;
+    xScale.ticks.stepSize = 1;                        // 1.0 Hz increments
     xScale.ticks.callback = (v)=>v.toFixed(1);
   }
+
+  // Allow overrides
   if(xOverrides){
     if(xOverrides.min!=null) xScale.min = xOverrides.min;
     if(xOverrides.max!=null) xScale.max = xOverrides.max;
@@ -383,6 +394,7 @@ function makeDensityChart(ctx, label, color, xOverrides=null){
     }]},
     options:{
       responsive:true, maintainAspectRatio:false, animation:false,
+      layout:{ padding:{ left:10, right:10, bottom:8, top:4 } }, // padding so ticks are visible
       scales:{
         x: xScale,
         y:{
@@ -400,8 +412,37 @@ function makeDensityChart(ctx, label, color, xOverrides=null){
     }
   });
 }
+
+/* ====== REWRITTEN: updateDensityChart with neat rounded ranges ====== */
 function updateDensityChart(chart, values, opts={}){
-  const est = kdeEstimate(values, 160, 0.05, opts.fixedRange ?? null);
+  // helper to expand to a neat, rounded range so ticks land cleanly
+  function niceRange(min, max, step, pad=0.05){
+    if(!Number.isFinite(min) || !Number.isFinite(max)) return [0,1];
+    const span = max - min || 1;
+    min -= span * pad; max += span * pad;
+    return [
+      Math.floor(min / step) * step,
+      Math.ceil (max / step) * step
+    ];
+  }
+
+  const step = opts.roundStep ?? null;
+  let est;
+  if(step && values && values.length){
+    const vmin = Math.min(...values), vmax = Math.max(...values);
+    const [mn, mx] = niceRange(vmin, vmax, step, 0.05);
+    est = kdeEstimate(values, 160, 0.05, [mn, mx]);
+    // lock step size on ticks as well
+    if(chart?.options?.scales?.x?.ticks){
+      chart.options.scales.x.ticks.stepSize = step;
+      chart.options.scales.x.ticks.maxRotation = 0;
+      chart.options.scales.x.ticks.minRotation = 0;
+      chart.options.scales.x.ticks.padding = 6;
+    }
+  } else {
+    est = kdeEstimate(values, 160, 0.05, opts.fixedRange ?? null);
+  }
+
   // Convert density to relative percentage scale (0–100) by normalizing to the peak
   const maxY = Math.max(...est.ys, 0);
   const ysPct = maxY>0 ? est.ys.map(y=> (y/maxY)*100 ) : est.ys.map(_=>0);
@@ -649,7 +690,7 @@ function recomputePeaksAndStatsAll(){
     const fNow = Number.isFinite(fShowR)?fShowR:(Number.isFinite(fShowP)?fShowP:NaN);
     if(u.nowElems.hz) u.nowElems.hz.textContent = isFinite(fNow)? fNow.toFixed(2):'–';
 
-    // -------- Density (KDE) updates → % on Y (0–100 fixed) --------
+    // -------- Density (KDE) updates with tidy ticks --------
     const freqSamples = [];
     for(let i=1;i<rPeaks.length;i++){
       const dt = (rPeaks[i].t - rPeaks[i-1].t) / 1000;
@@ -657,8 +698,8 @@ function recomputePeaksAndStatsAll(){
     }
     if(u.dCharts.roll)  updateDensityChart(u.dCharts.roll,  rWin,  {fixedRange:[-45,45]});
     if(u.dCharts.pitch) updateDensityChart(u.dCharts.pitch, pWin,  {fixedRange:[-45,45]});
-    if(u.dCharts.freq)  updateDensityChart(u.dCharts.freq,  freqSamples);
-    if(u.dCharts.sog)   updateDensityChart(u.dCharts.sog,   sogWin);
+    if(u.dCharts.freq)  updateDensityChart(u.dCharts.freq,  freqSamples, {roundStep:1});    // 1.0 Hz
+    if(u.dCharts.sog)   updateDensityChart(u.dCharts.sog,   sogWin,      {roundStep:0.5});  // 0.5 kt
   }
 }
 
@@ -879,10 +920,10 @@ document.getElementById('btnClear').addEventListener('click',()=>{
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=false);
     chartSOG.data.datasets[u.idxSOG].hidden=false;
     if(u.dCharts){
-      updateDensityChart(u.dCharts.roll, [], {fixedRange:[-45,45]});
+      updateDensityChart(u.dCharts.roll,  [], {fixedRange:[-45,45]});
       updateDensityChart(u.dCharts.pitch, [], {fixedRange:[-45,45]});
-      updateDensityChart(u.dCharts.freq, []);
-      updateDensityChart(u.dCharts.sog, []);
+      updateDensityChart(u.dCharts.freq,  [], {roundStep:1});   // keep tidy Hz frame
+      updateDensityChart(u.dCharts.sog,   [], {roundStep:0.5}); // keep tidy kt frame
     }
   }
   globalT0=null; syncLastMs=null; chartTS.update('none'); chartSOG.update('none'); log('cleared');
