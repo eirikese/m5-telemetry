@@ -351,16 +351,22 @@ function makeDensityChart(ctx, label, color, xOverrides=null){
     grid:{color:'#2a385a', tickLength:4},
     title:{display:false}
   };
-  if(label==='Roll' || label==='Pitch') {
-    xScale.min = -45; xScale.max = 45; xScale.ticks.stepSize = 10; xScale.ticks.callback = (v)=>String(Math.round(v));
+  if(label==='Roll/Pitch') {
+    xScale.min = -45; xScale.max = 45; xScale.ticks.stepSize = 10;
+    xScale.ticks.callback = (v)=>String(Math.round(v));
     xScale.ticks.maxRotation = 0;
     xScale.ticks.minRotation = 0;
+    xScale.ticks.align = 'center';
+    xScale.ticks.padding = 12;
   } else if(label==='SOG') {
     xScale.ticks.stepSize = 0.5;
   } else if(label==='Freq') {
-    // No fixed min/max for frequency, just 1 Hz increments
     xScale.ticks.stepSize = 1;
     xScale.ticks.callback = (v)=>v.toFixed(1);
+    xScale.ticks.maxRotation = 0;
+    xScale.ticks.minRotation = 0;
+    xScale.ticks.align = 'center';
+    xScale.ticks.padding = 12;
   }
   if(xOverrides){
     if(xOverrides.min!=null) xScale.min = xOverrides.min;
@@ -486,13 +492,9 @@ function ensureUnit(unitId){
       <div style="grid-column:1/-1"><div class="small">Mean SOG (kt)</div><div class="num" id="st-sog-mean-${unitId}">–</div></div>
     </div>
     <div class="dgrid">
-      <div class="dens-wrap">
-        <div class="dens-head">Roll (°)</div>
-        <canvas id="d-roll-${unitId}"></canvas>
-      </div>
-      <div class="dens-wrap">
-        <div class="dens-head">Pitch (°)</div>
-        <canvas id="d-pitch-${unitId}"></canvas>
+      <div class="dens-wrap" style="grid-column:span 2;">
+        <div class="dens-head">Roll & Pitch (°)</div>
+        <canvas id="d-rollpitch-${unitId}"></canvas>
       </div>
       <div class="dens-wrap">
         <div class="dens-head">Freq (Hz)</div>
@@ -512,9 +514,8 @@ function ensureUnit(unitId){
     sogMean:$(`st-sog-mean-${unitId}`)
   };
 
-  // Density charts
-  u.dCharts.roll  = makeDensityChart(document.getElementById(`d-roll-${unitId}`).getContext('2d'),'Roll',color,null);
-  u.dCharts.pitch = makeDensityChart(document.getElementById(`d-pitch-${unitId}`).getContext('2d'),'Pitch',color,null);
+  // Combined roll & pitch density chart
+  u.dCharts.rollpitch = makeDensityChart(document.getElementById(`d-rollpitch-${unitId}`).getContext('2d'),'Roll/Pitch',color,null);
   u.dCharts.freq  = makeDensityChart(document.getElementById(`d-freq-${unitId}`).getContext('2d'),'Freq',color,null);
   u.dCharts.sog   = makeDensityChart(document.getElementById(`d-sog-${unitId}`).getContext('2d'),'SOG',color,null);
 
