@@ -38,10 +38,10 @@
   #map{height:40vh;min-height:260px;border-radius:12px;overflow:hidden}
   .leaflet-container{background:#0b1220}
 
-  /* Density (KDE) grid on Plot tab */
+  /* Density (KDE) box on Plot tab: stacked plots, full width */
   .dgrid{
     display:grid;
-    grid-template-columns:1fr 1fr;
+    grid-template-columns:1fr; /* stack vertically */
     gap:10px;
     margin-top:10px;
   }
@@ -117,7 +117,7 @@
         </div>
       </div>
 
-      <!-- Distributions by athlete -->
+      <!-- Distributions by athlete (stacked) -->
       <div class="row">
         <div class="card grow">
           <div style="font-weight:700;margin-bottom:8px;">Distributions by athlete (window)</div>
@@ -130,8 +130,12 @@
               <div class="dens-head">Pitch (°) — per athlete</div>
               <canvas id="dist-pitch"></canvas>
             </div>
+            <div class="dens-wrap">
+              <div class="dens-head">Frequency (Hz) — per athlete</div>
+              <canvas id="dist-freq"></canvas>
+            </div>
           </div>
-          <div class="tiny" style="margin-top:6px;">Each colored curve is one athlete; X is −40°…0°…+40°, Y is % of that athlete’s peak density.</div>
+          <div class="tiny" style="margin-top:6px;">Each colored curve is one athlete. Roll/Pitch X is −40°…0°…+40°. Frequency X is 0.1–10 Hz. Y is % of that athlete’s peak density (0–110%).</div>
         </div>
       </div>
     </section>
@@ -169,8 +173,8 @@
             <div style="grid-column:1/-1;">
               <label>Timeseries View Window (seconds)</label>
               <div class="range-row">
-                <input id="viewSecRange" type="range" min="5" max="600" step="5" value="10"/>
-                <input id="viewSec" type="number" min="5" max="600" step="5" value="10" style="width:90px"/>
+                <input id="viewSecRange" type="range" min="5" max="600" step="5" value="30"/>
+                <input id="viewSec" type="number" min="5" max="600" step="5" value="30" style="width:90px"/>
               </div>
             </div>
             <div style="grid-column:1/-1;">
@@ -223,7 +227,7 @@ const APP_VERSION="v1.5.8";
 const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9";
 const $=id=>document.getElementById(id);
 
-// ------------- utilities -------------
+// ---------- utilities ----------
 function log(s){const el=$('log');el.textContent+=s+"\\n";el.scrollTop=el.scrollHeight}
 function setStatus(t,ok=false){$('status').textContent=t;$('status').className=ok?'ok':'bad'}
 function meanStd(a){if(!a.length)return{mean:NaN,std:NaN};const m=a.reduce((x,y)=>x+y,0)/a.length;const v=a.reduce((x,y)=>x+(y-m)*(y-m),0)/a.length;return{mean:m,std:Math.sqrt(v)}}
@@ -233,33 +237,25 @@ async function deriveKey(pw,salt){const enc=new TextEncoder();const mat=await cr
 async function decryptCreds(pass,blob){const j=JSON.parse(atob(blob));const key=await deriveKey(pass,b64d(j.salt));const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64d(j.iv)},key,b64d(j.ct));return JSON.parse(new TextDecoder().decode(new Uint8Array(pt)))}
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 
-// GNSS guard + math
+// GNSS guards + geo
 function coerceNum(v){
   if(v===null||v===undefined) return null;
   if(typeof v==='string'){
     const s=v.trim().toLowerCase();
     if(s===''||s==='null'||s==='nan'||s==='undefined') return null;
   }
-  const n=Number(v);
-  return Number.isFinite(n)? n : null;
+  const n=Number(v); return Number.isFinite(n)? n : null;
 }
 function validLatLon(lat,lon){return lat!==null&&lon!==null&&Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180;}
-
-// geo helpers
 const Rm=6371000;
-function projLocalMeters(lat0,lon0,lat,lon){
-  const toR=a=>a*Math.PI/180;
-  const x=(toR(lon)-toR(lon0))*Math.cos(toR(lat0))*Rm;
-  const y=(toR(lat)-toR(lat0))*Rm;
-  return {x,y};
-}
+function projLocalMeters(lat0,lon0,lat,lon){const toR=a=>a*Math.PI/180;return {x:(toR(lon)-toR(lon0))*Math.cos(toR(lat0))*Rm,y:(toR(lat)-toR(lat0))*Rm}}
 function bearingFromV(vx,vy){ const toD=a=>a*180/Math.PI; let brg=toD(Math.atan2(vx,vy)); if(brg<0) brg+=360; return brg; }
 const KNOTS_PER_MPS=1.94384449;
 
-// chart defaults
+// ---------- chart defaults ----------
 Chart.defaults.color='#dfe7ff'; Chart.defaults.borderColor='#2a385a';
 
-// ------------- state -------------
+// ---------- state ----------
 let client=null, unlocked=false, viewer={user:null,pass:null};
 let chartTS=null, chartSOG=null;
 let map=null, mapInited=false, firstMapFixDone=false;
@@ -286,26 +282,37 @@ let recActive=false, recRows=[], recStartedAt=null;
 // DOM refs
 const nowUnits=$('nowUnits'), statsUnits=$('statsUnits'), unitsList=$('unitsList');
 
-// ------------- chart builders -------------
-function makeLineChart(ctx, yTitle){
+// ---------- chart builders ----------
+function makeTimeseries(){
+  const ctx=document.getElementById('chart_ts').getContext('2d');
   return new Chart(ctx,{type:'line',data:{datasets:[]},options:{
     animation:false,responsive:true,maintainAspectRatio:false,
-    scales:{x:{type:'linear',title:{display:true,text:'time (s from start)'},
-               ticks:{callback:v=>Number(v).toFixed(1)}},
-            y:{title:{display:true,text:yTitle}}},
+    scales:{
+      x:{type:'linear',title:{display:true,text:'time (s from start)'},ticks:{callback:v=>Number(v).toFixed(1)}},
+      y:{title:{display:true,text:'degrees'},min:-40,max:40} // ±40°
+    },
     plugins:{legend:{position:'bottom'}}
   }});
 }
-
+function makeSOG(){
+  const ctx=document.getElementById('chart_sog').getContext('2d');
+  return new Chart(ctx,{type:'line',data:{datasets:[]},options:{
+    animation:false,responsive:true,maintainAspectRatio:false,
+    scales:{
+      x:{type:'linear',title:{display:true,text:'time (s from start)'},ticks:{callback:v=>Number(v).toFixed(1)}},
+      y:{title:{display:true,text:'knots'},min:0,max:8} // 0–8 kt
+    },
+    plugins:{legend:{position:'bottom'}}
+  }});
+}
 function makeMap(){
   map=L.map('map',{zoomControl:true});
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
-    attribution:'&copy; OSM & CARTO',subdomains:'abcd',maxZoom:20}).addTo(map);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'&copy; OSM & CARTO',subdomains:'abcd',maxZoom:20}).addTo(map);
   map.setView([0,0],2); mapInited=true;
 }
 function fitMapIfFirst(lat,lon){ if(!firstMapFixDone){ map.setView([lat,lon],15); firstMapFixDone=true; } }
 
-// ---- KDE helpers (refactored) ----
+// ---------- KDE helpers ----------
 function linspace(min,max,n){ const a=new Array(n); const step=(max-min)/(n-1); for(let i=0;i<n;i++) a[i]=min+i*step; return a; }
 function stddev(arr){ if(!arr.length) return 0; const m=arr.reduce((s,v)=>s+v,0)/arr.length; return Math.sqrt(arr.reduce((s,v)=>s+(v-m)*(v-m),0)/arr.length); }
 function kdeBandwidth(arr){ if(arr.length<2) return 1; const s=stddev(arr); return 1.06*s*Math.pow(arr.length,-1/5); }
@@ -325,26 +332,27 @@ function kdeOnGrid(values, xs){
     return s*invnh;
   });
 }
+const points=(xs,ys)=>xs.map((x,i)=>({x,y:ys[i]}));
 
-// density chart with multi-datasets (one per athlete)
-function makeDensityChartMulti(ctx, label, xMin=-40, xMax=40, step=10){
+// multi-dataset density chart with linear x and {x,y} points
+function makeDensityChartMulti(ctx, label, xConf){
+  const {min,max,step,type='linear'}=xConf;
   return new Chart(ctx,{
     type:'line',
-    data:{labels:[], datasets:[]},
+    data:{datasets:[]},
     options:{
       responsive:true, maintainAspectRatio:false, animation:false,
       layout:{padding:{left:10,right:10,bottom:8,top:4}},
       scales:{
         x:{
-          min:xMin, max:xMax,
+          type, min, max,
           grid:{color:'#2a385a',tickLength:4},
           ticks:{
             color:'#dfe7ff', padding:6,
             maxRotation:0,minRotation:0,
-            autoSkip:true, autoSkipPadding:8, maxTicksLimit:Math.floor((xMax-xMin)/step)+1,
-            stepSize:step, callback:(v)=>String(Math.round(v))
-          },
-          title:{display:false}
+            autoSkip:true, autoSkipPadding:8, stepSize:step,
+            callback:(v)=>String(v)
+          }
         },
         y:{
           min:0, max:110,
@@ -361,33 +369,26 @@ function makeDensityChartMulti(ctx, label, xMin=-40, xMax=40, step=10){
     }
   });
 }
-
-// upsert dataset for a unitId, color-coded
 function upsertDistDataset(chart, map, unitId, color){
   if(map[unitId]!=null) return map[unitId];
-  const ds={label:unitId,data:[],borderColor:color,backgroundColor:color+'22',fill:true};
+  const ds={label:unitId,data:[],parsing:true,borderColor:color,backgroundColor:color+'22',fill:true};
   chart.data.datasets.push(ds);
   const idx=chart.data.datasets.length-1;
   map[unitId]=idx;
   return idx;
 }
 
-// ------------- distributions state -------------
-const DIST_RANGE={min:-40,max:40,step:10,gridCnt:161};
-let distCharts={roll:null,pitch:null,xs:null};
-let distIndexes={roll:{},pitch:{}};
+// ---------- distributions state ----------
+const DEG_RANGE={min:-40,max:40,step:10,gridCnt:161};
+const FREQ_RANGE={min:0.1,max:10,step:1,gridCnt:200};
+let distCharts={roll:null,pitch:null,freq:null, xsDeg:null, xsHz:null};
+let distIdx={roll:{},pitch:{},freq:{}};
 
-// ------------- timeseries & SOG -------------
-function makeTimeseries(){ return makeLineChart(document.getElementById('chart_ts').getContext('2d'),'degrees'); }
-function makeSOG(){
-  const chart = makeLineChart(document.getElementById('chart_sog').getContext('2d'), 'knots');
-  chart.options.scales.y.min = 0;
-  chart.options.scales.y.max = 8;
-  return chart;
-}
+// ---------- timeseries & SOG ----------
+function makeTS(){ return makeTimeseries(); }
+function makeSOGChart(){ return makeSOG(); }
 
-
-// ------------- unit management -------------
+// ---------- unit management ----------
 function ensureUnit(unitId){
   if(units[unitId]) return units[unitId];
   const color=COLORS[discoveredOrder.length%COLORS.length]; discoveredOrder.push(unitId);
@@ -462,7 +463,7 @@ function ensureUnit(unitId){
                  rHz:$(`st-roll-hz-${unitId}`), pHz:$(`st-pitch-hz-${unitId}`),
                  sogMean:$(`st-sog-mean-${unitId}`) };
 
-  // settings checkbox (also affects distribution visibility)
+  // settings checkbox (affects visibility incl. distributions)
   const row=document.createElement('div');
   row.innerHTML=`<label style="display:flex;gap:8px;align-items:center">
     <input type="checkbox" id="chk-${unitId}" checked/>
@@ -474,23 +475,14 @@ function ensureUnit(unitId){
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=!u.visible);
     chartSOG.data.datasets[u.idxSOG].hidden=!u.visible;
 
-    // distributions: toggle dataset visibility if exists
-    const rIdx=distIndexes.roll[unitId]; if(rIdx!=null) distCharts.roll.data.datasets[rIdx].hidden=!u.visible;
-    const pIdx=distIndexes.pitch[unitId]; if(pIdx!=null) distCharts.pitch.data.datasets[pIdx].hidden=!u.visible;
+    const rI=distIdx.roll[unitId]; if(rI!=null) distCharts.roll.data.datasets[rI].hidden=!u.visible;
+    const pI=distIdx.pitch[unitId]; if(pI!=null) distCharts.pitch.data.datasets[pI].hidden=!u.visible;
+    const fI=distIdx.freq[unitId];  if(fI!=null) distCharts.freq.data.datasets[fI].hidden=!u.visible;
 
-    if(u.visible){
-      if(!map.hasLayer(u.poly)) u.poly.addTo(map);
-      if(!map.hasLayer(u.marker)) u.marker.addTo(map);
-      const hasFix=u.gnssLatLngs.length>0;
-      u.poly.setStyle({opacity:hasFix?0.95:0});
-      u.marker.setStyle({opacity:hasFix?1:0,fillOpacity:hasFix?1:0});
-    }else{
-      if(map.hasLayer(u.poly)) map.removeLayer(u.poly);
-      if(map.hasLayer(u.marker)) map.removeLayer(u.marker);
-    }
     chartTS.update('none'); chartSOG.update('none');
     if(distCharts.roll) distCharts.roll.update('none');
     if(distCharts.pitch) distCharts.pitch.update('none');
+    if(distCharts.freq) distCharts.freq.update('none');
   });
 
   if(getRefUnit()===unitId && globalT0===null) resetSyncSeries();
@@ -498,14 +490,14 @@ function ensureUnit(unitId){
   return u;
 }
 
-// ------------- helpers: time windows, axes, pruning -------------
-const viewRange=$('viewSecRange'), viewNum=$('viewSec'); let currentViewSec=parseInt(viewNum.value||'10',10);
-function applyViewWindow(val){ currentViewSec=clamp(parseInt(val||'10',10),5,600); viewRange.value=currentViewSec; viewNum.value=currentViewSec; updateAxisRange(); }
+// ---------- helpers: windows, axes, prune ----------
+const viewRange=$('viewSecRange'), viewNum=$('viewSec'); let currentViewSec=parseInt(viewNum.value||'30',10);
+function applyViewWindow(val){ currentViewSec=clamp(parseInt(val||'30',10),5,600); viewRange.value=currentViewSec; viewNum.value=currentViewSec; updateAxisRange(); }
 viewRange.addEventListener('input',e=>applyViewWindow(e.target.value));
 viewNum.addEventListener('change',e=>applyViewWindow(e.target.value));
 
 const winRange=$('winSecRange'), winNum=$('winSec');
-function applyWindow(val){ const v=clamp(parseInt(val||'10',10),5,600); winRange.value=v; winNum.value=v; recomputePeaksAndStatsAll(); chartTS.update('none'); chartSOG.update('none'); }
+function applyWindow(val){ const v=clamp(parseInt(val||'30',10),5,600); winRange.value=v; winNum.value=v; recomputePeaksAndStatsAll(); chartTS.update('none'); chartSOG.update('none'); }
 winRange.addEventListener('input',e=>applyWindow(e.target.value));
 winNum.addEventListener('change',e=>applyWindow(e.target.value));
 
@@ -521,7 +513,6 @@ function updateAxisRange(){
   if(chartTS){chartTS.options.scales.x.min=Number(xmin.toFixed(1)); chartTS.options.scales.x.max=Number(xmax.toFixed(1)); chartTS.update('none');}
   if(chartSOG){chartSOG.options.scales.x.min=Number(xmin.toFixed(1)); chartSOG.options.scales.x.max=Number(xmax.toFixed(1)); chartSOG.update('none');}
 }
-
 function nearestIdx(times,target){
   if(!times.length) return -1;
   let i=times.length-1;
@@ -530,9 +521,8 @@ function nearestIdx(times,target){
   const d1=Math.abs(times[c1]-target), d0=Math.abs(times[c0]-target);
   return (d1<=d0)?c1:c0;
 }
-
 function pruneOld(nowMs){
-  const keepMs=Math.max(parseFloat(winNum.value||'10')*1000,MAX_KEEP_SEC*1000);
+  const keepMs=Math.max(parseFloat(winNum.value||'30')*1000,MAX_KEEP_SEC*1000);
   for(const id of Object.keys(units)){
     const u=units[id];
     while(u.times.length && u.times[0]<nowMs-keepMs){u.times.shift();u.roll.shift();u.pitch.shift();}
@@ -544,7 +534,7 @@ function pruneOld(nowMs){
   }
 }
 
-// ------------- peaks & stats + distributions update -------------
+// ---------- peaks & stats + distributions ----------
 function detectPeaks(vals,times,minDistMs,minProm){
   const n=vals.length; if(n<3) return [];
   const peaks=[]; let lastT=-1e18;
@@ -558,62 +548,84 @@ function detectPeaks(vals,times,minDistMs,minProm){
   }
   return peaks;
 }
-
 function getWindowForUnit(u, winSec){
   if(!u.times.length) return {tWin:[], rWin:[], pWin:[], startMs:NaN, nowU:NaN};
   const nowU=u.times[u.times.length-1], startMs=nowU - winSec*1000;
   let s=0; while(s<u.times.length && u.times[s]<startMs) s++;
   return { tWin:u.times.slice(s), rWin:u.roll.slice(s), pWin:u.pitch.slice(s), startMs, nowU };
 }
-
-// unified per-athlete distributions update (two charts: roll & pitch)
+function freqSamplesFromPeaks(peaks){
+  const out=[];
+  for(let i=1;i<peaks.length;i++){
+    const dt=(peaks[i].t-peaks[i-1].t)/1000;
+    if(dt>0){ const f=1/dt; if(f>=FREQ_RANGE.min && f<=FREQ_RANGE.max) out.push(f); }
+  }
+  return out;
+}
 function updateUnifiedDistributions(){
-  if(!distCharts.roll||!distCharts.pitch) return;
-  const winSec=parseFloat(winNum.value||'10');
-  if(!distCharts.xs){ distCharts.xs=linspace(DIST_RANGE.min,DIST_RANGE.max,DIST_RANGE.gridCnt); distCharts.roll.data.labels=distCharts.xs; distCharts.pitch.data.labels=distCharts.xs; }
+  if(!distCharts.roll||!distCharts.pitch||!distCharts.freq) return;
+  const winSec=parseFloat(winNum.value||'30');
 
-  // mark all datasets as hidden initially; we'll unhide those with data
+  if(!distCharts.xsDeg){
+    distCharts.xsDeg=linspace(DEG_RANGE.min,DEG_RANGE.max,DEG_RANGE.gridCnt);
+  }
+  if(!distCharts.xsHz){
+    distCharts.xsHz=linspace(FREQ_RANGE.min,FREQ_RANGE.max,FREQ_RANGE.gridCnt);
+  }
+
+  // clear/hide existing
   for(const ds of distCharts.roll.data.datasets){ ds.hidden=true; ds.data.length=0; }
   for(const ds of distCharts.pitch.data.datasets){ ds.hidden=true; ds.data.length=0; }
+  for(const ds of distCharts.freq.data.datasets){ ds.hidden=true; ds.data.length=0; }
 
   for(const id of Object.keys(units)){
     const u=units[id];
-    // upsert datasets so legends/colors are stable
-    const rIdx=upsertDistDataset(distCharts.roll,  distIndexes.roll,  id, u.color);
-    const pIdx=upsertDistDataset(distCharts.pitch, distIndexes.pitch, id, u.color);
+    const rI=upsertDistDataset(distCharts.roll, distIdx.roll, id, u.color);
+    const pI=upsertDistDataset(distCharts.pitch,distIdx.pitch,id, u.color);
+    const fI=upsertDistDataset(distCharts.freq, distIdx.freq, id, u.color);
 
-    if(!u.visible || !u.times.length) { distCharts.roll.data.datasets[rIdx].hidden=true; distCharts.pitch.data.datasets[pIdx].hidden=true; continue; }
-
-    const {rWin,pWin}=getWindowForUnit(u,winSec);
-    if(rWin.length){
-      let ys = kdeOnGrid(rWin, distCharts.xs);
-      const dx = (DIST_RANGE.max - DIST_RANGE.min) / (DIST_RANGE.gridCnt - 1);
-      const area = ys.reduce((s,y)=>s+y,0) * dx;          // integral over x
-      ys = area>0 ? ys.map(y => y * (100/area)) : ys.map(_=>0);
-      distCharts.roll.data.datasets[rIdx].data = ys;
-      distCharts.roll.data.datasets[rIdx].hidden=false;
-    } else {
-      distCharts.roll.data.datasets[rIdx].hidden=true;
+    if(!u.visible || !u.times.length){ 
+      distCharts.roll.data.datasets[rI].hidden=true;
+      distCharts.pitch.data.datasets[pI].hidden=true;
+      distCharts.freq.data.datasets[fI].hidden=true;
+      continue;
     }
 
+    const {tWin,rWin,pWin}=getWindowForUnit(u,winSec);
+
+    // roll density
+    if(rWin.length){
+      let ys=kdeOnGrid(rWin,distCharts.xsDeg);
+      const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
+      distCharts.roll.data.datasets[rI].data=points(distCharts.xsDeg,ys);
+      distCharts.roll.data.datasets[rI].hidden=false;
+    }
+
+    // pitch density
     if(pWin.length){
-      let ys = kdeOnGrid(pWin, distCharts.xs);
-      const dx = (DIST_RANGE.max - DIST_RANGE.min) / (DIST_RANGE.gridCnt - 1);
-      const area = ys.reduce((s,y)=>s+y,0) * dx;
-      ys = area>0 ? ys.map(y => y * (100/area)) : ys.map(_=>0);
-      distCharts.pitch.data.datasets[pIdx].data = ys;
-      distCharts.pitch.data.datasets[pIdx].hidden=false;
-    } else {
-      distCharts.pitch.data.datasets[pIdx].hidden=true;
+      let ys=kdeOnGrid(pWin,distCharts.xsDeg);
+      const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
+      distCharts.pitch.data.datasets[pI].data=points(distCharts.xsDeg,ys);
+      distCharts.pitch.data.datasets[pI].hidden=false;
+    }
+
+    // frequency density (from roll peaks within window)
+    const rPeaks=detectPeaks(rWin,tWin,parseFloat($('minDist').value||'300'),parseFloat($('minProm').value||'5.0'));
+    const fSamples=freqSamplesFromPeaks(rPeaks);
+    if(fSamples.length){
+      let ys=kdeOnGrid(fSamples,distCharts.xsHz);
+      const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
+      distCharts.freq.data.datasets[fI].data=points(distCharts.xsHz,ys);
+      distCharts.freq.data.datasets[fI].hidden=false;
     }
   }
 
   distCharts.roll.update('none');
   distCharts.pitch.update('none');
+  distCharts.freq.update('none');
 }
-
 function recomputePeaksAndStatsAll(){
-  const winSec=parseFloat(winNum.value||'10'), minDist=parseFloat($('minDist').value||'300'), minProm=parseFloat($('minProm').value||'5.0');
+  const winSec=parseFloat(winNum.value||'30'), minDist=parseFloat($('minDist').value||'300'), minProm=parseFloat($('minProm').value||'5.0');
 
   for(const id of Object.keys(units)){
     const u=units[id]; if(!u.times.length) continue;
@@ -654,11 +666,10 @@ function recomputePeaksAndStatsAll(){
     if(u.nowElems.hz) u.nowElems.hz.textContent = isFinite(fNow)? fNow.toFixed(2):'–';
   }
 
-  // update the per-athlete distributions (roll & pitch)
   updateUnifiedDistributions();
 }
 
-// ------------- sync plotting -------------
+// ---------- sync plotting ----------
 function resetSyncSeries(){
   syncLastMs=null;
   let tfirst=null;
@@ -696,7 +707,7 @@ function appendSyncedPoint(t_ref){
   chartTS.update('none'); chartSOG.update('none');
 }
 
-// ------------- velocity from regression over a sliding window -------------
+// ---------- velocity over sliding window ----------
 function updateVelocityFromWindow(u,t,lat,lon){
   if(u.lat0===null||u.lon0===null){ u.lat0=lat; u.lon0=lon; }
   const p=projLocalMeters(u.lat0,u.lon0,lat,lon);
@@ -724,7 +735,7 @@ function updateVelocityFromWindow(u,t,lat,lon){
   u.sogTimes.push(t); u.sogVals.push(u.sogEMA); u.sogSeries.push({x:xPlot,y:u.sogEMA});
 }
 
-// ------------- Recording -------------
+// ---------- Recording ----------
 const btnRecord=$('btnRecord'), recInfo=$('recInfo');
 btnRecord.addEventListener('click',()=>{ if(!recActive){ startRec(); } else { stopRec(); } });
 function startRec(){ recActive=true; recRows=[]; recStartedAt=Date.now(); btnRecord.textContent="Stop & Save"; btnRecord.classList.add('recording','blink'); if(window._rt) clearInterval(window._rt); window._rt=setInterval(()=>{recInfo.textContent=`Recording… ${((Date.now()-recStartedAt)/1000).toFixed(1)} s`;},200); log("recording started"); }
@@ -748,7 +759,7 @@ function stopRec(){
   recInfo.textContent=`Saved ${recRows.length} samples to ${fname}`; log(`saved CSV (${recRows.length} rows)`);
 }
 
-// ------------- Tabs -------------
+// ---------- Tabs ----------
 document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
   const name=b.dataset.tab; ['plot','stats','settings'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
   document.getElementById('tab-'+name).classList.remove('hidden');
@@ -756,10 +767,11 @@ document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
   if(name==='plot'){
     try{ distCharts.roll.resize();  distCharts.roll.update('none'); }catch{}
     try{ distCharts.pitch.resize(); distCharts.pitch.update('none'); }catch{}
+    try{ distCharts.freq.resize();  distCharts.freq.update('none'); }catch{}
   }
 }));
 
-// ------------- Unlock & connect -------------
+// ---------- Unlock & connect ----------
 document.getElementById('btnUnlock').addEventListener('click',async ()=>{
   const pwd=document.getElementById('pw').value; if(!pwd){document.getElementById('unlockMsg').textContent='Enter a password.';return;}
   if(!ENCRYPTED_CREDS||ENCRYPTED_CREDS==='PASTE_CIPHERTEXT_HERE'){ document.getElementById('unlockMsg').textContent='No encrypted creds embedded.'; return; }
@@ -769,15 +781,17 @@ document.getElementById('btnUnlock').addEventListener('click',async ()=>{
     document.getElementById('gate').classList.add('hidden'); document.getElementById('app').classList.remove('hidden');
     document.getElementById('cid').value='web-'+Math.random().toString(16).slice(2,10);
 
-    chartTS=makeTimeseries(); chartSOG=makeSOG(); makeMap();
+    chartTS=makeTS(); chartSOG=makeSOGChart(); makeMap();
 
-    // init multi-dataset distribution charts with fixed ±40° x-range
-    (function initUnifiedDistributions(){
+    // init per-athlete distribution charts
+    (function initDists(){
       const rctx=document.getElementById('dist-roll').getContext('2d');
       const pctx=document.getElementById('dist-pitch').getContext('2d');
-      distCharts.roll = makeDensityChartMulti(rctx,'Roll',DIST_RANGE.min,DIST_RANGE.max,DIST_RANGE.step);
-      distCharts.pitch= makeDensityChartMulti(pctx,'Pitch',DIST_RANGE.min,DIST_RANGE.max,DIST_RANGE.step);
-      distCharts.xs=null; // grid will be built on first update
+      const fctx=document.getElementById('dist-freq').getContext('2d');
+      distCharts.roll = makeDensityChartMulti(rctx,'Roll', {min:DEG_RANGE.min,max:DEG_RANGE.max,step:DEG_RANGE.step,type:'linear'});
+      distCharts.pitch= makeDensityChartMulti(pctx,'Pitch',{min:DEG_RANGE.min,max:DEG_RANGE.max,step:DEG_RANGE.step,type:'linear'});
+      distCharts.freq = makeDensityChartMulti(fctx,'Freq',  {min:FREQ_RANGE.min,max:FREQ_RANGE.max,step:FREQ_RANGE.step,type:'linear'});
+      distCharts.xsDeg=null; distCharts.xsHz=null;
     })();
 
     setStatus('unlocked — not connected',false);
@@ -838,18 +852,17 @@ function connect(){
         if(u.nowElems.hdg) u.nowElems.hdg.textContent=(u.heading!=null)?u.heading.toFixed(0):'–';
       } else { if(u.nowElems.ll) u.nowElems.ll.textContent='–'; }
 
-      // recording
+      // record if active
       if(recActive){
         recRows.push({
           unit, t, seq:d.seq, roll, pitch,
-          lat:(hasFix?lat:undefined),
-          lon:(hasFix?lon:undefined),
+          lat:(hasFix?lat:undefined), lon:(hasFix?lon:undefined),
           gnss_ms:(d.gnss_ms===null||d.gnss_ms===undefined)?undefined:d.gnss_ms,
           gnss_iso:(d.gnss_iso||'')
         });
       }
 
-      // synced arrival
+      // synced plot driver
       const ref=getRefUnit(); if(ref===unit){ appendSyncedPoint(t); }
 
       chartSOG.update('none');
@@ -877,6 +890,7 @@ document.getElementById('btnClear').addEventListener('click',()=>{
   // reset distributions
   if(distCharts.roll){ for(const ds of distCharts.roll.data.datasets){ ds.data.length=0; ds.hidden=true; } distCharts.roll.update('none'); }
   if(distCharts.pitch){ for(const ds of distCharts.pitch.data.datasets){ ds.data.length=0; ds.hidden=true; } distCharts.pitch.update('none'); }
+  if(distCharts.freq){ for(const ds of distCharts.freq.data.datasets){ ds.data.length=0; ds.hidden=true; } distCharts.freq.update('none'); }
   globalT0=null; syncLastMs=null; chartTS.update('none'); chartSOG.update('none'); log('cleared');
   firstMapFixDone=false; if(mapInited) map.setView([0,0],2);
 });
