@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>TrollSports Live v1.5.2</title>
+<title>TrollSports Live v1.5.3</title>
 <meta name="theme-color" content="#0b1220"/>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -55,47 +55,22 @@
 </style>
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
-<!-- Boxplot plugin -->
 <script src="https://cdn.jsdelivr.net/npm/chartjs-chart-boxplot@4.4.3"></script>
-<!-- Robust registration for various UMD globals -->
+<!-- Deterministic registration: registers all plugin exports so 'boxplot' is known -->
 <script>
 (function(){
-  const candidates = [
-    window['chartjs-chart-boxplot'],
-    window.ChartBoxPlot,
-    window.ChartBoxWhisker,
-    window['@sgratzl/chartjs-chart-boxplot']
-  ].filter(Boolean);
-
-  function tryRegister(mod){
-    try{
-      // Most UMD builds expose individual controllers/elements
-      const parts = Object.values(mod || {});
-      const registrables = parts.filter(p =>
-        p && (p.id || p.defaults || p.prototype && p.prototype.datasetElementType || p.prototype && p.prototype.dataElementType)
-      );
-      if (registrables.length && window.Chart) {
-        Chart.register(...registrables);
-        return true;
-      }
-    }catch(e){ /* noop */ }
-    return false;
+  if (!window.Chart) { console.error('Chart.js not loaded'); return; }
+  const mod = window['chartjs-chart-boxplot'];
+  if (!mod) { console.error('chartjs-chart-boxplot UMD not found on window'); return; }
+  try {
+    const registrables = Object.values(mod).filter(Boolean);
+    Chart.register(...registrables);
+    if (!Chart.registry.controllers.has('boxplot')) {
+      console.warn('Boxplot controller still not present after registration');
+    }
+  } catch (e) {
+    console.error('Registration of chartjs-chart-boxplot failed:', e);
   }
-
-  let ok = false;
-  for (const m of candidates){ if(tryRegister(m)){ ok = true; break; } }
-  if(!ok && window.Chart && window['chartjs-chart-boxplot']){
-    // Fallback to named exports if present
-    const b = window['chartjs-chart-boxplot'];
-    try{
-      Chart.register(
-        b.BoxPlotController, b.ViolinController,
-        b.BoxAndWhiskersElement, b.ViolinElement
-      );
-      ok = true;
-    }catch(e){}
-  }
-  if(!ok) console.warn('chartjs-chart-boxplot registration failed — box plots may not render.');
 })();
 </script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
@@ -103,7 +78,7 @@
 <body>
   <div class="topbar">
     <div class="app-title">TrollSports Live</div><div class="spacer"></div>
-    <div class="ver">v1.5.2</div>
+    <div class="ver">v1.5.3</div>
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
@@ -234,7 +209,7 @@
   </div>
 
 <script>
-const APP_VERSION="v1.5.2";
+const APP_VERSION="v1.5.3";
 const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9";
 const $=id=>document.getElementById(id);
 
@@ -434,7 +409,7 @@ function ensureUnit(unitId){
       labels: ['Roll (°)', 'Pitch (°)', 'Freq (Hz)', 'SOG (kt)'],
       datasets: [{
         label: `${unitId} window`,
-        data: [[], [], [], []],
+        data: [[], [], [], []],   // filled on recompute
         borderWidth: 1.5,
         outlierRadius: 2,
         borderColor: color,
