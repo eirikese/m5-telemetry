@@ -1126,7 +1126,7 @@ function connect(){
         u.poly.setLatLngs(u.gnssLatLngs);
         u.poly.setStyle({opacity:u.visible?0.95:0});
         u.marker.setLatLng([lat,lon]);
-        u.marker.setStyle({opacity=u.visible?1:0,fillOpacity=u.visible?1:0});
+        u.marker.setStyle({ opacity: (u.visible ? 1 : 0), fillOpacity: (u.visible ? 1 : 0) });
         if(!firstMapFixDone) fitMapIfFirst(lat,lon);
         if(u.nowElems.ll) u.nowElems.ll.textContent=`${lat.toFixed(6)}, ${lon.toFixed(6)}`;
 
