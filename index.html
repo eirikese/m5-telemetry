@@ -83,7 +83,6 @@
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
-      <button class="tabbtn" data-tab="race">Race Setup</button>
       <button class="tabbtn" data-tab="settings">Settings</button>
     </div>
   </div>
@@ -154,25 +153,28 @@
     <!-- STATS TAB -->
     <section id="tab-stats" class="hidden"><div class="row" id="statsUnits" style="width:100%"></div></section>
 
-    <!-- RACE SETUP TAB -->
-    <section id="tab-race" class="hidden">
-      <div class="row">
-        <div class="card half">
-          <div style="font-weight:700;margin-bottom:8px;">Race Setup</div>
-          <div class="btns">
-            <button id="btnTopMark">Add Top Mark</button>
-            <button id="btnStartLine">Add Start Line</button>
-          </div>
-          <div class="small" id="topMarkInfo">No top mark set.</div>
-          <div class="small" id="startLineInfo">No start line set.</div>
-          <div class="tiny">Tip: After clicking a button, you’ll be taken to the Map; click the point(s) to place.</div>
-        </div>
-      </div>
-    </section>
-
-    <!-- SETTINGS TAB -->
+    <!-- SETTINGS TAB (with Appearance + Race Setup) -->
     <section id="tab-settings" class="hidden">
       <div class="row">
+        <!-- Appearance -->
+        <div class="card half">
+          <div style="font-weight:700;margin-bottom:8px;">Appearance</div>
+          <div class="grid" style="grid-template-columns:1fr">
+            <div>
+              <label for="themeSel">Theme</label>
+              <select id="themeSel">
+                <option value="auto">Auto (match system)</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+              <div class="tiny" style="margin-top:6px;">
+                Athlete colors are slightly darkened in Light mode for contrast. Axis ticks & map base switch automatically.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Connection -->
         <div class="card half">
           <div style="font-weight:700;margin-bottom:8px;">Connection</div>
           <div class="grid">
@@ -194,6 +196,7 @@
           </div>
         </div>
 
+        <!-- Windows/Peaks/GNSS -->
         <div class="card half">
           <div style="font-weight:700;margin-bottom:8px;">Windows, Peaks & GNSS</div>
           <div class="grid">
@@ -241,28 +244,13 @@
           </div>
         </div>
 
+        <!-- Units -->
         <div class="card half">
           <div style="font-weight:700;margin-bottom:8px;">Units</div>
           <div id="unitsList" class="grid" style="grid-template-columns:1fr;gap:8px"></div>
         </div>
 
-        <div class="card half">
-          <div style="font-weight:700;margin-bottom:8px;">Appearance</div>
-          <div class="grid" style="grid-template-columns:1fr">
-            <div>
-              <label for="themeSel">Theme</label>
-              <select id="themeSel">
-                <option value="auto">Auto (match system)</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </select>
-              <div class="tiny" style="margin-top:6px;">
-                Athlete colors are slightly darkened in Light mode for contrast. Axis ticks & map base switch automatically.
-              </div>
-            </div>
-          </div>
-        </div>
-
+        <!-- Sync -->
         <div class="card half">
           <div style="font-weight:700;margin-bottom:8px;">Sync</div>
           <div class="grid">
@@ -278,6 +266,19 @@
           <div class="small" id="syncInfo"></div>
         </div>
 
+        <!-- Race Setup (moved here) -->
+        <div class="card grow">
+          <div style="font-weight:700;margin-bottom:8px;">Race Setup</div>
+          <div class="btns">
+            <button id="btnTopMark">Add Top Mark</button>
+            <button id="btnStartLine">Add Start Line</button>
+          </div>
+          <div class="small" id="topMarkInfo" style="margin-top:6px;">No top mark set.</div>
+          <div class="small" id="startLineInfo">No start line set.</div>
+          <div class="tiny" style="margin-top:6px;">Tip: After clicking a button, you’ll be taken to the Map; click the point(s) to place. First start-line point appears immediately.</div>
+        </div>
+
+        <!-- Logs -->
         <div class="card grow"><div style="font-weight:700;margin-bottom:8px;">Logs</div><pre class="log" id="log"></pre></div>
       </div>
     </section>
@@ -382,7 +383,7 @@ function applyTheme(choice){
 }
 
 function initThemeUI(){
-  const sel = $('themeSel'); // optional (not present by default)
+  const sel = $('themeSel');
   if(!sel) return;
   sel.value = currentThemeChoice();
   sel.addEventListener('change', e=>{
@@ -796,7 +797,7 @@ function updateUnifiedDistributions(){
   const winSec=parseFloat(winNum.value||'30');
 
   if(!distCharts.xsDeg){ distCharts.xsDeg=linspace(DEG_RANGE.min,DEG_RANGE.max,DEG_RANGE.gridCnt); }
-  if(!distCharts.xsHz){  distCharts.xsHz =linspace(FREQ_RANGE.min,FREQ_RANGE.max,FREQ_RANGE.gridCnt); }
+  if(!distCharts.xsHz){  distCharts.xsHz =linspace(FREQ_RANGE.min,FREQ_RANGE.max,DEG_RANGE.gridCnt); }
 
   for(const ds of distCharts.roll.data.datasets){ ds.hidden=true; ds.data.length=0; }
   for(const ds of distCharts.pitch.data.datasets){ ds.hidden=true; ds.data.length=0; }
@@ -820,7 +821,6 @@ function updateUnifiedDistributions(){
 
     const {tWin,rWin,pWin}=getWindowForUnit(u,winSec);
 
-    // roll density via shift→log→back
     if(rWin.length){
       let ys=kdeOnGridLogBackShift(rWin,distCharts.xsDeg,angK);
       const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
@@ -830,7 +830,6 @@ function updateUnifiedDistributions(){
       ds.hidden=false;
     }
 
-    // pitch density via shift→log→back
     if(pWin.length){
       let ys=kdeOnGridLogBackShift(pWin,distCharts.xsDeg,angK);
       const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
@@ -840,7 +839,6 @@ function updateUnifiedDistributions(){
       ds.hidden=false;
     }
 
-    // frequency density (positive-only)
     const rPeaks=detectPeaks(rWin,tWin,parseFloat($('minDist').value||'300'),parseFloat($('minProm').value||'5.0'));
     const fSamples=freqSamplesFromPeaks(rPeaks);
     if(fSamples.length){
@@ -952,7 +950,6 @@ function orthogonalDistanceToLine(ax,ay,bx,by,px,py){
   const wx=px-ax, wy=py-ay;
   const vlen=Math.hypot(vx,vy);
   if(vlen<=0) return Math.hypot(wx,wy);
-  // area of parallelogram / base length = |cross| / |v|
   const cross = Math.abs(vx*wy - vy*wx);
   return cross / vlen;
 }
@@ -1061,7 +1058,7 @@ function startPlaceTopMark(){
   });
 }
 
-// ---------- Start Line placement (two clicks) ----------
+// ---------- Start Line placement (two clicks, show first point immediately) ----------
 function setStartLine(aLat,aLon,bLat,bLon){
   startLine = { a:{lat:aLat,lon:aLon}, b:{lat:bLat,lon:bLon} };
   const accent = cssVar('--accent','#ffcc00');
@@ -1096,14 +1093,32 @@ function startPlaceStartLine(){
   $('sogInfo').textContent = 'Click on the map to set start line point A…';
   let A = null;
 
+  const accent = cssVar('--accent','#ffcc00');
+
   const clickA = (e)=>{
     A = e.latlng;
+    // Show first point immediately
+    if(!startLineMarkers.a){
+      startLineMarkers.a = L.circleMarker([A.lat,A.lng],{radius:6,color:accent,fillColor:accent,fillOpacity:1}).addTo(map);
+    } else {
+      startLineMarkers.a.setLatLng([A.lat,A.lng]).setStyle({color:accent,fillColor:accent});
+    }
+    // If there was a previous B marker but no line, hide it for now
+    if(startLineMarkers.b && !startLineLayer){
+      startLineMarkers.b.setStyle({opacity:0, fillOpacity:0});
+    }
     $('sogInfo').textContent = 'Click on the map to set start line point B…';
     placingStartPhase = 2;
     map.once('click', clickB);
   };
   const clickB = (e)=>{
     const B = e.latlng;
+    // Reveal/update B marker immediately too
+    if(!startLineMarkers.b){
+      startLineMarkers.b = L.circleMarker([B.lat,B.lng],{radius:6,color:accent,fillColor:accent,fillOpacity:1}).addTo(map);
+    } else {
+      startLineMarkers.b.setLatLng([B.lat,B.lng]).setStyle({color:accent,fillColor:accent,opacity:1,fillOpacity:1});
+    }
     setStartLine(A.lat,A.lng,B.lat,B.lng);
     $('sogInfo').textContent = '';
     placingStartPhase = 0;
@@ -1138,7 +1153,7 @@ function stopRec(){
 
 // ---------- Tabs ----------
 function selectTab(name){
-  ['plot','stats','race','settings'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
+  ['plot','stats','settings'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
   document.getElementById('tab-'+name).classList.remove('hidden');
   document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
   if(name==='plot'){
@@ -1180,7 +1195,7 @@ document.getElementById('btnUnlock').addEventListener('click',async ()=>{
     initThemeUI();
     applyTheme(currentThemeChoice());
 
-    // Buttons in Race tab
+    // Race buttons (now live in Settings)
     $('btnTopMark').addEventListener('click', startPlaceTopMark);
     $('btnStartLine').addEventListener('click', startPlaceStartLine);
 
@@ -1230,7 +1245,7 @@ function connect(){
         u.poly.setLatLngs(u.gnssLatLngs);
         u.poly.setStyle({opacity:u.visible?0.95:0});
         u.marker.setLatLng([lat,lon]);
-        u.marker.setStyle({ opacity: (u.visible ? 1 : 0), fillOpacity: (u.visible ? 1 : 0) }); // fixed syntax
+        u.marker.setStyle({ opacity: (u.visible ? 1 : 0), fillOpacity: (u.visible ? 1 : 0) });
         if(!firstMapFixDone) fitMapIfFirst(lat,lon);
         if(u.nowElems.ll) u.nowElems.ll.textContent=`${lat.toFixed(6)}, ${lon.toFixed(6)}`;
 
@@ -1298,7 +1313,7 @@ function validLatLon(lat,lon){return lat!==null&&lon!==null&&Number.isFinite(lat
 // keep axes tight to window
 setInterval(updateAxisRange,500);
 
-// Hook race buttons in case of early access before unlock init
+// In case someone presses buttons early (before unlock init)
 const btnTM=document.getElementById('btnTopMark'); if(btnTM){ btnTM.addEventListener('click', startPlaceTopMark); }
 const btnSL=document.getElementById('btnStartLine'); if(btnSL){ btnSL.addEventListener('click', startPlaceStartLine); }
 </script>
