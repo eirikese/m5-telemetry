@@ -121,7 +121,7 @@
               <canvas id="dist-freq"></canvas>
             </div>
           </div>
-          <div class="tiny" style="margin-top:6px;">Roll/Pitch X: −40°…0°…+40°. Frequency X: 0.1–10 Hz. Y: % of that athlete’s peak (0–110%).</div>
+          <div class="tiny" style="margin-top:6px;">Roll/Pitch X: −40°…0°…+40°. Frequency X: 0.05–5 Hz. Y: % of that athlete’s peak (0–110%).</div>
         </div>
       </div>
     </section>
@@ -398,7 +398,7 @@ function upsertDistDataset(chart, map, unitId, color){
 
 // ---------- distributions state ----------
 const DEG_RANGE={min:-40,max:40,step:10,gridCnt:161};
-const FREQ_RANGE={min:0.1,max:10,step:1,gridCnt:200};
+const FREQ_RANGE={min:0.05,max:5,step:1,gridCnt:200};
 let distCharts={roll:null,pitch:null,freq:null, xsDeg:null, xsHz:null};
 let distIdx={roll:{},pitch:{},freq:{}};
 
