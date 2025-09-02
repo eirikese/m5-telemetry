@@ -20,8 +20,8 @@
     --btn:#152341;
     --btn-active:#152341;
     --input:#0e1730;
-    --chart-text:#dfe7ff;
-    --chart-grid:#2a385a;
+    --chart-text:#dfe7ff;    /* axis labels/ticks/legend */
+    --chart-grid:#2a385a;    /* grid lines */
     --leaflet-bg:#0b1220;
   }
   .theme-light{
@@ -37,8 +37,8 @@
     --btn:#f2f6ff;
     --btn-active:#e6effe;
     --input:#f8fbff;
-    --chart-text:#22324f;
-    --chart-grid:#c6d3ea;
+    --chart-text:#22324f;   /* darker ticks for light bg */
+    --chart-grid:#c6d3ea;   /* soft grid for light bg */
     --leaflet-bg:#e6eefc;
   }
 
@@ -56,7 +56,7 @@
   .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px} button{padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:var(--btn);color:var(--text);cursor:pointer}
   input,select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--input);color:var(--text)}
   label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.hidden{display:none}.ok{color:#6bd66b}.bad{color:#ff6b6b}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.hidden{display:none}.ok{color:#16c26e}.bad{color:#ff6b6b}
   .log{font-size:12px;background:var(--input);color:var(--text);padding:10px;border-radius:10px;max-height:200px;overflow:auto;border:1px dashed var(--border)}
   .plot{position:relative;height:45vh;min-height:280px;width:100%} canvas{display:block}
   .recording{background:#4a1111;border-color:#ff7a7a;color:#fff}.recording::before{content:"● ";color:var(--rec)}
@@ -292,7 +292,7 @@ function hexToRgb(h){h=h.replace('#',''); if(h.length===3){h=h.split('').map(c=>
 function rgbToHex({r,g,b}){const f=v=>v.toString(16).padStart(2,'0'); return '#'+f(r)+f(g)+f(b);}
 function rgbToHsl({r,g,b}){r/=255;g/=255;b/=255;const max=Math.max(r,g,b),min=Math.min(r,g,b);let h,s,l=(max+min)/2;if(max===min){h=s=0;}else{const d=max-min;s=l>0.5?d/(2-max-min):d/(max+min);switch(max){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;case b:h=(r-g)/d+4;break;}h/=6;}return {h,s,l};}
 function hslToRgb({h,s,l}){let r,g,b;if(s===0){r=g=b=l;}else{const hue2rgb=(p,q,t)=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;};const q=l<0.5?l*(1+s):l+s-l*s;const p=2*l-q;r=hue2rgb(p,q,h+1/3);g=hue2rgb(p,q,h);b=hue2rgb(p,q,h-1/3);}return {r:Math.round(r*255),g:Math.round(g*255),b:Math.round(b*255)};}
-function darkenHex(hex, amt=0.14){ // reduce lightness by amt (0..1)
+function darkenHex(hex, amt=0.22){ // reduce lightness by amt (0..1) — stronger for light mode
   const hsl=rgbToHsl(hexToRgb(hex)); const l=Math.max(0, hsl.l*(1-amt)); return rgbToHex(hslToRgb({...hsl,l}));
 }
 
@@ -314,11 +314,27 @@ function applyTheme(choice){
   const meta = document.querySelector('meta[name="theme-color"]');
   if(meta) meta.setAttribute('content', themeColor);
 
-  // Chart colors
+  // Chart defaults then per-chart axis ticks/grid
   const chartText = cs.getPropertyValue('--chart-text').trim();
   const chartGrid = cs.getPropertyValue('--chart-grid').trim();
   Chart.defaults.color = chartText;
   Chart.defaults.borderColor = chartGrid;
+
+  const retick = (chart)=>{
+    if(!chart) return;
+    if(chart.options?.scales?.x){
+      chart.options.scales.x.ticks ||= {};
+      chart.options.scales.x.grid ||= {};
+      chart.options.scales.y ||= {};
+      chart.options.scales.y.ticks ||= {};
+      chart.options.scales.y.grid ||= {};
+      chart.options.scales.x.ticks.color = chartText;
+      chart.options.scales.y.ticks.color = chartText;
+      chart.options.scales.x.grid.color = chartGrid;
+      chart.options.scales.y.grid.color = chartGrid;
+    }
+    chart.update('none');
+  };
 
   // Map tiles
   const isLight = (mode==='light');
@@ -336,15 +352,17 @@ function applyTheme(choice){
   }
   const mc = $('mapCredit'); if(mc) mc.textContent = credit;
 
-  // Re-tint athlete assets to maintain hue but darken on light theme
+  // Re-tint athlete assets (darker in light mode)
   refreshUnitStylesForTheme(mode);
 
-  if(chartTS) chartTS.update('none');
-  if(chartSOG) chartSOG.update('none');
-  if(distCharts.roll)  distCharts.roll.update('none');
-  if(distCharts.pitch) distCharts.pitch.update('none');
-  if(distCharts.freq)  distCharts.freq.update('none');
+  // Apply tick/grid colors to all charts
+  retick(chartTS);
+  retick(chartSOG);
+  if(distCharts.roll)  retick(distCharts.roll);
+  if(distCharts.pitch) retick(distCharts.pitch);
+  if(distCharts.freq)  retick(distCharts.freq);
 }
+
 function initThemeUI(){
   const sel = $('themeSel');
   if(!sel) return;
@@ -364,9 +382,9 @@ let chartTS=null, chartSOG=null;
 let map=null, mapInited=false, firstMapFixDone=false;
 let globalT0=null, syncLastMs=null;
 
-// Keep your original athlete colors (base). We'll darken in light theme only.
+// Athlete base palette (unchanged); darker variant applied only in light mode
 const COLORS_BASE=["#4cc9f0","#ffd166","#ef476f","#06d6a0","#a78bfa","#7dd3fc","#fca5a5","#86efac"];
-function themedColor(hex){ const mode = document.documentElement.classList.contains('theme-light')?'light':'dark'; return (mode==='light') ? darkenHex(hex,0.14) : hex; }
+function themedColor(hex){ const mode = document.documentElement.classList.contains('theme-light')?'light':'dark'; return (mode==='light') ? darkenHex(hex,0.22) : hex; }
 
 const units={}, discoveredOrder=[];
 const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000, GNSS_KEEP=4000;
@@ -380,8 +398,8 @@ sogNum.addEventListener('change',e=>sogRange.value=e.target.value);
 // KDE smoothing controls
 const kdeAngRange=$('kdeFactorAngRange'), kdeAngNum=$('kdeFactorAng');
 const kdeFreqRange=$('kdeFactorFreqRange'), kdeFreqNum=$('kdeFactorFreq');
-function getKdeFactorAngles(){ return clamp(parseFloat(kdeAngNum.value||'1.0'),0.3,3); }
-function getKdeFactorFreq(){ return clamp(parseFloat(kdeFreqNum.value||'1.0'),0.3,3); }
+function getKdeFactorAngles(){ return clamp(parseFloat(kdeAngNum.value||'0.3'),0.1,1); }
+function getKdeFactorFreq(){ return clamp(parseFloat(kdeFreqNum.value||'0.3'),0.1,1); }
 kdeAngRange.addEventListener('input',e=>{ kdeAngNum.value=e.target.value; updateUnifiedDistributions(); });
 kdeAngNum.addEventListener('change',e=>{ kdeAngRange.value=e.target.value; updateUnifiedDistributions(); });
 kdeFreqRange.addEventListener('input',e=>{ kdeFreqNum.value=e.target.value; updateUnifiedDistributions(); });
@@ -424,7 +442,7 @@ function makeSOG(){
 }
 function makeMap(){
   map=L.map('map',{zoomControl:true});
-  window._tileLayer=null; // theme will attach tiles
+  window._tileLayer=null; // will be set by applyTheme()
   map.setView([0,0],2); mapInited=true;
 }
 function fitMapIfFirst(lat,lon){ if(!firstMapFixDone){ map.setView([lat,lon],15); firstMapFixDone=true; } }
@@ -434,6 +452,8 @@ function linspace(min,max,n){ const a=new Array(n); const step=(max-min)/(n-1); 
 function stddev(arr){ if(!arr.length) return 0; const m=arr.reduce((s,v)=>s+v,0)/arr.length; return Math.sqrt(arr.reduce((s,v)=>s+(v-m)*(v-m),0)/arr.length); }
 function kdeBandwidth(arr){ if(arr.length<2) return 1; const s=stddev(arr); return 1.06*s*Math.pow(arr.length,-1/5); }
 function gaussian(u){ return Math.exp(-0.5*u*u)/Math.sqrt(2*Math.PI); }
+
+/* Log-KDE for strictly positive variables */
 function kdeOnGridLogBack(values, xs, factor=1){
   const v = (values || []).filter(Number.isFinite).filter(x => x > 0);
   if (!v.length) return xs.map(_ => 0);
@@ -456,6 +476,48 @@ function kdeOnGridLogBack(values, xs, factor=1){
   }
   return out;
 }
+
+/* NEW: Log-KDE with positive shift → handles negatives.
+   We shift both data and evaluation grid by C so everything is >0, do log-KDE, then back-transform.
+   f_X(x) = f_Z(x+C), where Z = X + C and f_Z(z) = f_Y(log z) * (1/z)
+*/
+function kdeOnGridLogBackShift(values, xs, factor=1){
+  const v0 = (values || []).filter(Number.isFinite);
+  if (!v0.length) return xs.map(_ => 0);
+
+  // choose C so that min(v0)+C > 0 and min(xs)+C > 0
+  const minV = Math.min(...v0);
+  const minX = Math.min(...xs);
+  const eps = 1e-6;
+  const C = Math.max( -(minV) + eps, -(minX) + eps );
+
+  const v = v0.map(x => x + C);               // shifted samples (now > 0)
+  const xsShift = xs.map(x => x + C);         // shifted grid (also > 0)
+
+  // Log-space bandwidth on shifted data
+  const y = v.map(Math.log);
+  let h = kdeBandwidth(y) * factor;
+  if (!Number.isFinite(h) || h <= 1e-6) {
+    const ymin = Math.min(...y), ymax = Math.max(...y);
+    const span = (ymax - ymin) || 1;
+    h = Math.max(span * 0.05, 1e-3) * factor;
+  }
+
+  const n = y.length;
+  const invnh = 1 / (n * h);
+  const out = new Array(xsShift.length);
+
+  for (let j = 0; j < xsShift.length; j++) {
+    const z = Math.max(xsShift[j], eps);     // work in shifted variable z > 0
+    const yl = Math.log(z);
+    let s = 0;
+    for (let i = 0; i < n; i++) s += gaussian((yl - y[i]) / h);
+    // back-transform with Jacobian 1/z; then evaluate at x = z - C (implicit by using xsShift)
+    out[j] = (s * invnh) / z;
+  }
+  return out;
+}
+
 const points=(xs,ys)=>xs.map((x,i)=>({x,y:ys[i]}));
 
 // multi-dataset density chart
@@ -468,7 +530,8 @@ function makeDensityChartMulti(ctx, label, xConf){
       responsive:true, maintainAspectRatio:false, animation:false,
       layout:{padding:{left:10,right:10,bottom:8,top:4}},
       scales:{
-        x:{ type, min, max, grid:{color:Chart.defaults.borderColor,tickLength:4},
+        x:{ type, min, max,
+            grid:{color:Chart.defaults.borderColor,tickLength:4},
             ticks:{color:Chart.defaults.color, padding:6, maxRotation:0, minRotation:0, stepSize:step, callback:(v)=>String(v)}},
         y:{min:0, max:110, grid:{color:Chart.defaults.borderColor,tickLength:4}, ticks:{display:false}}
       },
@@ -541,7 +604,7 @@ function ensureUnit(unitId){
 
   // Now card
   const nowCard=document.createElement('div'); nowCard.className='unitNow uNums'; nowCard.style.setProperty('--ucolor',color);
-  nowCard.innerHTML=`<div class="unitTag" style="background:${color}">${unitId}</div>
+  nowCard.innerHTML=`<div class="unitTag" id="tag-${unitId}" style="background:${color}">${unitId}</div>
     <div class="grid">
       <div><div class="small">Roll</div><div class="num" id="now-roll-${unitId}">–</div></div>
       <div><div class="small">Pitch</div><div class="num" id="now-pitch-${unitId}">–</div></div>
@@ -580,7 +643,7 @@ function ensureUnit(unitId){
   const row=document.createElement('div');
   row.innerHTML=`<label style="display:flex;gap:8px;align-items:center">
     <input type="checkbox" id="chk-${unitId}" checked/>
-    <span class="unitTag" id="tag-${unitId}" style="background:${color}">${unitId}</span>
+    <span class="unitTag" id="tag-${unitId}-settings" style="background:${color}">${unitId}</span>
     <span class="tiny">show/hide</span></label>`;
   unitsList.appendChild(row);
   row.querySelector('input').addEventListener('change',(e)=>{
@@ -605,7 +668,7 @@ function ensureUnit(unitId){
 function refreshUnitStylesForTheme(mode){
   for(const id of Object.keys(units)){
     const u=units[id];
-    const c = (mode==='light') ? darkenHex(u.baseColor,0.14) : u.baseColor;
+    const c = (mode==='light') ? darkenHex(u.baseColor,0.22) : u.baseColor;
     u.color = c;
     // timeseries
     chartTS.data.datasets[u.idxRoll].borderColor = c;
@@ -619,8 +682,10 @@ function refreshUnitStylesForTheme(mode){
     if(u.poly) u.poly.setStyle({color:c});
     if(u.marker) u.marker.setStyle({color:c, fillColor:c});
     // tags/cards accent
-    const tag = document.getElementById(`tag-${id}`);
-    if(tag) tag.style.background = c;
+    const tagNow = document.getElementById(`tag-${id}`);
+    if(tagNow) tagNow.style.background = c;
+    const tagSet = document.getElementById(`tag-${id}-settings`);
+    if(tagSet) tagSet.style.background = c;
     const nowCard = u.nowElems?.roll && document.querySelector(`#now-roll-${id}`)?.closest('.uNums');
     if(nowCard) nowCard.style.setProperty('--ucolor', c);
     const statEl = document.querySelector(`#st-roll-mean-${id}`)?.closest('.unitStats');
@@ -733,9 +798,9 @@ function updateUnifiedDistributions(){
 
     const {tWin,rWin,pWin}=getWindowForUnit(u,winSec);
 
-    // roll density
+    // roll density (NEG & POS via shift→log→back)
     if(rWin.length){
-      let ys=kdeOnGridLogBack(rWin,distCharts.xsDeg,angK);
+      let ys=kdeOnGridLogBackShift(rWin,distCharts.xsDeg,angK);
       const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
       const ds=distCharts.roll.data.datasets[rI];
       ds.data=points(distCharts.xsDeg,ys);
@@ -743,9 +808,9 @@ function updateUnifiedDistributions(){
       ds.hidden=false;
     }
 
-    // pitch density
+    // pitch density (NEG & POS via shift→log→back)
     if(pWin.length){
-      let ys=kdeOnGridLogBack(pWin,distCharts.xsDeg,angK);
+      let ys=kdeOnGridLogBackShift(pWin,distCharts.xsDeg,angK);
       const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
       const ds=distCharts.pitch.data.datasets[pI];
       ds.data=points(distCharts.xsDeg,ys);
@@ -753,7 +818,7 @@ function updateUnifiedDistributions(){
       ds.hidden=false;
     }
 
-    // frequency density
+    // frequency density (positive-only, standard log-KDE)
     const rPeaks=detectPeaks(rWin,tWin,parseFloat($('minDist').value||'300'),parseFloat($('minProm').value||'5.0'));
     const fSamples=freqSamplesFromPeaks(rPeaks);
     if(fSamples.length){
