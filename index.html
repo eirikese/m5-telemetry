@@ -330,20 +330,36 @@ function linspace(min,max,n){ const a=new Array(n); const step=(max-min)/(n-1); 
 function stddev(arr){ if(!arr.length) return 0; const m=arr.reduce((s,v)=>s+v,0)/arr.length; return Math.sqrt(arr.reduce((s,v)=>s+(v-m)*(v-m),0)/arr.length); }
 function kdeBandwidth(arr){ if(arr.length<2) return 1; const s=stddev(arr); return 1.06*s*Math.pow(arr.length,-1/5); }
 function gaussian(u){ return Math.exp(-0.5*u*u)/Math.sqrt(2*Math.PI); }
-function kdeOnGrid(values, xs, factor=1){
-  const x=(values||[]).filter(Number.isFinite);
-  const n=x.length; if(!n) return xs.map(_=>0);
-  let h=kdeBandwidth(x)*factor;
-  if(!Number.isFinite(h)||h<=1e-6){
-    const span=(Math.max(...x)-Math.min(...x))||1;
-    h=Math.max(span*0.05,1e-3)*factor;
+function kdeOnGridLogBack(values, xs, factor=1){ // Log-KDE with back-transform (for positive variables like frequency). Estimates density of X on grid xs by doing Gaussian KDE on Y=log(X), then back-transforming: f_X(x) = f_Y(log x) * (1/x)
+  const v = (values || []).filter(Number.isFinite).filter(x => x > 0);
+  if (!v.length) return xs.map(_ => 0);
+
+  // work in log-space
+  const y = v.map(Math.log);
+
+  // bandwidth in log-space (Silverman-ish), with a small stability floor
+  let h = kdeBandwidth(y) * factor;
+  if (!Number.isFinite(h) || h <= 1e-6) {
+    const ymin = Math.min(...y), ymax = Math.max(...y);
+    const span = (ymax - ymin) || 1;
+    h = Math.max(span * 0.05, 1e-3) * factor;
   }
-  const invnh=1/(n*h);
-  return xs.map(x0=>{
-    let s=0; for(let i=0;i<n;i++) s+=gaussian((x0-x[i])/h);
-    return s*invnh;
-  });
+
+  const n = y.length;
+  const invnh = 1 / (n * h);
+  const out = new Array(xs.length);
+
+  for (let j = 0; j < xs.length; j++) {
+    const x = Math.max(xs[j], 1e-9);     // guard (x must be > 0)
+    const yl = Math.log(x);
+    let s = 0;
+    for (let i = 0; i < n; i++) s += gaussian((yl - y[i]) / h);
+    // back-transform with Jacobian 1/x
+    out[j] = (s * invnh) / x;
+  }
+  return out;
 }
+
 const points=(xs,ys)=>xs.map((x,i)=>({x,y:ys[i]}));
 
 // multi-dataset density chart with linear x and {x,y} points
@@ -594,7 +610,7 @@ function updateUnifiedDistributions(){
 
     // roll density
     if(rWin.length){
-      let ys=kdeOnGrid(rWin,distCharts.xsDeg,angK);
+      let ys=kdeOnGridLogBack(rWin,distCharts.xsDeg,angK);
       const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
       distCharts.roll.data.datasets[rI].data=points(distCharts.xsDeg,ys);
       distCharts.roll.data.datasets[rI].hidden=false;
@@ -602,7 +618,7 @@ function updateUnifiedDistributions(){
 
     // pitch density
     if(pWin.length){
-      let ys=kdeOnGrid(pWin,distCharts.xsDeg,angK);
+      let ys=kdeOnGridLogBack(pWin,distCharts.xsDeg,angK);
       const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
       distCharts.pitch.data.datasets[pI].data=points(distCharts.xsDeg,ys);
       distCharts.pitch.data.datasets[pI].hidden=false;
@@ -612,7 +628,7 @@ function updateUnifiedDistributions(){
     const rPeaks=detectPeaks(rWin,tWin,parseFloat($('minDist').value||'300'),parseFloat($('minProm').value||'5.0'));
     const fSamples=freqSamplesFromPeaks(rPeaks);
     if(fSamples.length){
-      let ys=kdeOnGrid(fSamples,distCharts.xsHz,frqK);
+      let ys=kdeOnGridLogBack(fSamples,distCharts.xsHz,frqK);
       const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
       distCharts.freq.data.datasets[fI].data=points(distCharts.xsHz,ys);
       distCharts.freq.data.datasets[fI].hidden=false;
