@@ -11,40 +11,71 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
 <style>
   :root{--bg:#0b1220;--card:#0f1a31;--muted:#92a1bd;--text:#e6eefc;--accent:#4cc9f0;--border:#223050;--rec:#ff4d4d}
+
+  /* === Theme tokens (dark default) === */
+  :root{
+    --theme-color:#0b1220;
+    --topbar1:#0a1120;
+    --topbar2:#0c1526;
+    --btn:#152341;
+    --btn-active:#152341;
+    --input:#0e1730;
+    --chart-text:#dfe7ff;
+    --chart-grid:#2a385a;
+    --leaflet-bg:#0b1220;
+  }
+  .theme-light{
+    --bg:#f7f9fc;
+    --card:#ffffff;
+    --muted:#4e5d79;
+    --text:#0b1220;
+    --accent:#1e66f5;
+    --border:#d6deeb;
+    --theme-color:#ffffff;
+    --topbar1:#ffffff;
+    --topbar2:#f6f7fb;
+    --btn:#f2f6ff;
+    --btn-active:#e6effe;
+    --input:#f8fbff;
+    --chart-text:#22324f;
+    --chart-grid:#c6d3ea;
+    --leaflet-bg:#e6eefc;
+  }
+
   *{box-sizing:border-box} html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial,sans-serif;padding-bottom:env(safe-area-inset-bottom)}
-  .topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:10px;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;background:linear-gradient(180deg,#0a1120,#0c1526);border-bottom:1px solid var(--border)}
+  .topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:10px;padding:calc(8px + env(safe-area-inset-top)) 12px 8px;background:linear-gradient(180deg,var(--topbar1),var(--topbar2));border-bottom:1px solid var(--border)}
   .app-title{font-weight:700}.spacer{flex:1}.ver{color:var(--muted);font-size:12px}
-  .tabs{display:flex;gap:6px}.tabbtn{padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:#0f1a31;color:#fff;cursor:pointer;font-weight:600}
-  .tabbtn.active{background:#152341;border-color:#2a3c64}
+  .tabs{display:flex;gap:6px}.tabbtn{padding:8px 12px;border-radius:10px;border:1px solid var(--border);background:var(--btn);color:var(--text);cursor:pointer;font-weight:600}
+  .tabbtn.active{background:var(--btn-active);border-color:var(--border)}
   .wrap{padding:12px;display:flex;flex-direction:column;gap:12px}.row{display:flex;gap:12px;flex-wrap:wrap;align-items:stretch}
   .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:14px;box-shadow:0 1px 10px rgba(0,0,0,.2)}
   .grow{flex:1 1 560px}.half{flex:1 1 320px;min-width:300px}
   .small{font-size:12px;color:var(--muted)} .tiny{font-size:11px;color:var(--muted)} .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
   .num{font-weight:700;font-size:clamp(22px,5.8vw,34px);line-height:1.15}
-  .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px} button{padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:#152341;color:#fff;cursor:pointer}
-  input,select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:#0e1730;color:#fff}
-  label{display:block;font-size:12px;color:#92a1bd;margin-bottom:6px}
+  .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px} button{padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:var(--btn);color:var(--text);cursor:pointer}
+  input,select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--input);color:var(--text)}
+  label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.hidden{display:none}.ok{color:#6bd66b}.bad{color:#ff6b6b}
-  .log{font-size:12px;background:#0a1022;color:#b7c3ff;padding:10px;border-radius:10px;max-height:200px;overflow:auto;border:1px dashed #253356}
+  .log{font-size:12px;background:var(--input);color:var(--text);padding:10px;border-radius:10px;max-height:200px;overflow:auto;border:1px dashed var(--border)}
   .plot{position:relative;height:45vh;min-height:280px;width:100%} canvas{display:block}
   .recording{background:#4a1111;border-color:#ff7a7a;color:#fff}.recording::before{content:"● ";color:var(--rec)}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,77,77,.85)}70%{box-shadow:0 0 0 12px rgba(255,77,77,0)}100%{box-shadow:0 0 0 0 rgba(255,77,77,0)}}
   .blink{animation:pulse 1s infinite}
   .range-row{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center} input[type="range"]{width:100%;accent-color:var(--accent)}
-  .unitNow,.unitStats{border-radius:10px;padding:10px;border:1px solid var(--border);background:#0e1730}
+  .unitNow,.unitStats{border-radius:10px;padding:10px;border:1px solid var(--border);background:var(--input)}
   .unitTag{display:inline-block;padding:2px 8px;border-radius:999px;font-weight:700;margin-bottom:6px;color:#000}
   .uNums .num{color:var(--ucolor)}
   #map{height:40vh;min-height:260px;border-radius:12px;overflow:hidden}
-  .leaflet-container{background:#0b1220}
+  .leaflet-container{background:var(--leaflet-bg)}
 
   /* Density (KDE) box on Plot tab: stacked plots, full width */
   .dgrid{display:grid;grid-template-columns:1fr;gap:10px;margin-top:10px}
   .dens-wrap{
     position:relative;height:200px;border:1px solid var(--border);
-    border-radius:8px;padding:6px 6px 4px 6px;background:#0e1730;overflow:hidden
+    border-radius:8px;padding:6px 6px 4px 6px;background:var(--input);overflow:hidden
   }
-  .dens-head{font-size:11px;color:#92a1bd;margin:2px 0 4px 2px}
+  .dens-head{font-size:11px;color:var(--muted);margin:2px 0 4px 2px}
   .dens-wrap canvas{position:absolute;left:0;right:0;bottom:6px;top:22px;width:100% !important;height:auto !important}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
@@ -94,7 +125,7 @@
         <div class="card grow">
           <div style="font-weight:700;margin-bottom:8px;">GNSS Map</div>
           <div id="map"></div>
-          <div class="small" style="margin-top:6px;">Basemap © OpenStreetMap, © CARTO — Dark Matter</div>
+          <div class="small" id="mapCredit" style="margin-top:6px;">Basemap © OpenStreetMap, © CARTO — Dark Matter</div>
         </div>
         <div class="card half">
           <div style="font-weight:700;margin-bottom:8px;">SOG (knots)</div>
@@ -181,7 +212,7 @@
               <div class="tiny">Speed is computed from a linear fit of XY position over this window (1 Hz GNSS-friendly).</div>
             </div>
 
-            <!-- NEW: KDE smoothing controls -->
+            <!-- KDE smoothing controls -->
             <div style="grid-column:1/-1;">
               <label>Distribution smoothing — Roll/Pitch (× bandwidth)</label>
               <div class="range-row">
@@ -196,7 +227,7 @@
                 <input id="kdeFactorFreq" type="number" min="0.1" max="1" step="0.1" value="0.3" style="width:90px"/>
               </div>
             </div>
-            <!-- END NEW -->
+            <!-- END KDE -->
           </div>
         </div>
 
@@ -220,6 +251,22 @@
           <div class="small" id="syncInfo" style="margin-top:8px;"></div>
         </div>
 
+        <!-- Appearance -->
+        <div class="card half">
+          <div style="font-weight:700;margin-bottom:8px;">Appearance</div>
+          <div class="grid">
+            <div style="grid-column:1/-1">
+              <label>Theme</label>
+              <select id="themeSel">
+                <option value="dark">Dark</option>
+                <option value="light">Light</option>
+                <option value="auto" selected>Auto (match system)</option>
+              </select>
+            </div>
+          </div>
+          <div class="tiny" style="margin-top:6px;">Charts, UI, athlete colors, and map tiles adapt for contrast.</div>
+        </div>
+
         <div class="card grow"><div style="font-weight:700;margin-bottom:8px;">Logs</div><pre class="log" id="log"></pre></div>
       </div>
     </section>
@@ -240,30 +287,87 @@ async function deriveKey(pw,salt){const enc=new TextEncoder();const mat=await cr
 async function decryptCreds(pass,blob){const j=JSON.parse(atob(blob));const key=await deriveKey(pass,b64d(j.salt));const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64d(j.iv)},key,b64d(j.ct));return JSON.parse(new TextDecoder().decode(new Uint8Array(pt)))}
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 
-// GNSS guards + geo
-function coerceNum(v){
-  if(v===null||v===undefined) return null;
-  if(typeof v==='string'){
-    const s=v.trim().toLowerCase();
-    if(s===''||s==='null'||s==='nan'||s==='undefined') return null;
-  }
-  const n=Number(v); return Number.isFinite(n)? n : null;
+// color helpers (keep hue, darken for light theme)
+function hexToRgb(h){h=h.replace('#',''); if(h.length===3){h=h.split('').map(c=>c+c).join('');} const n=parseInt(h,16); return {r:(n>>16)&255,g:(n>>8)&255,b:n&255};}
+function rgbToHex({r,g,b}){const f=v=>v.toString(16).padStart(2,'0'); return '#'+f(r)+f(g)+f(b);}
+function rgbToHsl({r,g,b}){r/=255;g/=255;b/=255;const max=Math.max(r,g,b),min=Math.min(r,g,b);let h,s,l=(max+min)/2;if(max===min){h=s=0;}else{const d=max-min;s=l>0.5?d/(2-max-min):d/(max+min);switch(max){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;case b:h=(r-g)/d+4;break;}h/=6;}return {h,s,l};}
+function hslToRgb({h,s,l}){let r,g,b;if(s===0){r=g=b=l;}else{const hue2rgb=(p,q,t)=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;};const q=l<0.5?l*(1+s):l+s-l*s;const p=2*l-q;r=hue2rgb(p,q,h+1/3);g=hue2rgb(p,q,h);b=hue2rgb(p,q,h-1/3);}return {r:Math.round(r*255),g:Math.round(g*255),b:Math.round(b*255)};}
+function darkenHex(hex, amt=0.14){ // reduce lightness by amt (0..1)
+  const hsl=rgbToHsl(hexToRgb(hex)); const l=Math.max(0, hsl.l*(1-amt)); return rgbToHex(hslToRgb({...hsl,l}));
 }
-function validLatLon(lat,lon){return lat!==null&&lon!==null&&Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180;}
-const Rm=6371000;
-function projLocalMeters(lat0,lon0,lat,lon){const toR=a=>a*Math.PI/180;return {x:(toR(lon)-toR(lon0))*Math.cos(toR(lat0))*Rm,y:(toR(lat)-toR(lat0))*Rm}}
-function bearingFromV(vx,vy){ const toD=a=>a*180/Math.PI; let brg=toD(Math.atan2(vx,vy)); if(brg<0) brg+=360; return brg; }
-const KNOTS_PER_MPS=1.94384449;
 
 // ---------- chart defaults ----------
 Chart.defaults.color='#dfe7ff'; Chart.defaults.borderColor='#2a385a';
+
+// ---------- theme handling ----------
+const THEME_KEY = 'ts_theme'; // 'dark' | 'light' | 'auto'
+let _mqLight = window.matchMedia('(prefers-color-scheme: light)');
+function currentThemeChoice(){ return localStorage.getItem(THEME_KEY) || 'auto'; }
+
+function applyTheme(choice){
+  let mode = choice==='auto' ? (_mqLight.matches?'light':'dark') : choice;
+  document.documentElement.classList.toggle('theme-light', mode==='light');
+
+  // update status bar color
+  const cs = getComputedStyle(document.documentElement);
+  const themeColor = cs.getPropertyValue('--theme-color').trim() || '#ffffff';
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if(meta) meta.setAttribute('content', themeColor);
+
+  // Chart colors
+  const chartText = cs.getPropertyValue('--chart-text').trim();
+  const chartGrid = cs.getPropertyValue('--chart-grid').trim();
+  Chart.defaults.color = chartText;
+  Chart.defaults.borderColor = chartGrid;
+
+  // Map tiles
+  const isLight = (mode==='light');
+  const url = isLight
+    ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
+    : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+  const credit = isLight
+    ? 'Basemap © OpenStreetMap, © CARTO — Positron'
+    : 'Basemap © OpenStreetMap, © CARTO — Dark Matter';
+
+  if(map){
+    if(window._tileLayer) map.removeLayer(window._tileLayer);
+    window._tileLayer = L.tileLayer(url, {attribution:'&copy; OSM & CARTO', subdomains:'abcd', maxZoom:20});
+    window._tileLayer.addTo(map);
+  }
+  const mc = $('mapCredit'); if(mc) mc.textContent = credit;
+
+  // Re-tint athlete assets to maintain hue but darken on light theme
+  refreshUnitStylesForTheme(mode);
+
+  if(chartTS) chartTS.update('none');
+  if(chartSOG) chartSOG.update('none');
+  if(distCharts.roll)  distCharts.roll.update('none');
+  if(distCharts.pitch) distCharts.pitch.update('none');
+  if(distCharts.freq)  distCharts.freq.update('none');
+}
+function initThemeUI(){
+  const sel = $('themeSel');
+  if(!sel) return;
+  sel.value = currentThemeChoice();
+  sel.addEventListener('change', e=>{
+    localStorage.setItem(THEME_KEY, e.target.value);
+    applyTheme(e.target.value);
+  });
+  _mqLight.addEventListener?.('change', ()=>{
+    if(currentThemeChoice()==='auto') applyTheme('auto');
+  });
+}
 
 // ---------- state ----------
 let client=null, unlocked=false, viewer={user:null,pass:null};
 let chartTS=null, chartSOG=null;
 let map=null, mapInited=false, firstMapFixDone=false;
 let globalT0=null, syncLastMs=null;
-const COLORS=["#4cc9f0","#ffd166","#ef476f","#06d6a0","#a78bfa","#7dd3fc","#fca5a5","#86efac"];
+
+// Keep your original athlete colors (base). We'll darken in light theme only.
+const COLORS_BASE=["#4cc9f0","#ffd166","#ef476f","#06d6a0","#a78bfa","#7dd3fc","#fca5a5","#86efac"];
+function themedColor(hex){ const mode = document.documentElement.classList.contains('theme-light')?'light':'dark'; return (mode==='light') ? darkenHex(hex,0.14) : hex; }
+
 const units={}, discoveredOrder=[];
 const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000, GNSS_KEEP=4000;
 
@@ -273,7 +377,7 @@ function getSogWinSec(){ return clamp(parseInt(sogNum.value||'8',10),3,30); }
 sogRange.addEventListener('input',e=>sogNum.value=e.target.value);
 sogNum.addEventListener('change',e=>sogRange.value=e.target.value);
 
-// NEW: KDE smoothing controls
+// KDE smoothing controls
 const kdeAngRange=$('kdeFactorAngRange'), kdeAngNum=$('kdeFactorAng');
 const kdeFreqRange=$('kdeFactorFreqRange'), kdeFreqNum=$('kdeFactorFreq');
 function getKdeFactorAngles(){ return clamp(parseFloat(kdeAngNum.value||'1.0'),0.3,3); }
@@ -302,7 +406,7 @@ function makeTimeseries(){
     animation:false,responsive:true,maintainAspectRatio:false,
     scales:{
       x:{type:'linear',title:{display:true,text:'time (s from start)'},ticks:{callback:v=>Number(v).toFixed(1)}},
-      y:{title:{display:true,text:'degrees'},min:-40,max:40} // ±40°
+      y:{title:{display:true,text:'degrees'},min:-40,max:40}
     },
     plugins:{legend:{position:'bottom'}}
   }});
@@ -313,14 +417,14 @@ function makeSOG(){
     animation:false,responsive:true,maintainAspectRatio:false,
     scales:{
       x:{type:'linear',title:{display:true,text:'time (s from start)'},ticks:{callback:v=>Number(v).toFixed(1)}},
-      y:{title:{display:true,text:'knots'},min:0,max:8} // 0–8 kt
+      y:{title:{display:true,text:'knots'},min:0,max:8}
     },
     plugins:{legend:{position:'bottom'}}
   }});
 }
 function makeMap(){
   map=L.map('map',{zoomControl:true});
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{attribution:'&copy; OSM & CARTO',subdomains:'abcd',maxZoom:20}).addTo(map);
+  window._tileLayer=null; // theme will attach tiles
   map.setView([0,0],2); mapInited=true;
 }
 function fitMapIfFirst(lat,lon){ if(!firstMapFixDone){ map.setView([lat,lon],15); firstMapFixDone=true; } }
@@ -330,39 +434,31 @@ function linspace(min,max,n){ const a=new Array(n); const step=(max-min)/(n-1); 
 function stddev(arr){ if(!arr.length) return 0; const m=arr.reduce((s,v)=>s+v,0)/arr.length; return Math.sqrt(arr.reduce((s,v)=>s+(v-m)*(v-m),0)/arr.length); }
 function kdeBandwidth(arr){ if(arr.length<2) return 1; const s=stddev(arr); return 1.06*s*Math.pow(arr.length,-1/5); }
 function gaussian(u){ return Math.exp(-0.5*u*u)/Math.sqrt(2*Math.PI); }
-function kdeOnGridLogBack(values, xs, factor=1){ // Log-KDE with back-transform (for positive variables like frequency). Estimates density of X on grid xs by doing Gaussian KDE on Y=log(X), then back-transforming: f_X(x) = f_Y(log x) * (1/x)
+function kdeOnGridLogBack(values, xs, factor=1){
   const v = (values || []).filter(Number.isFinite).filter(x => x > 0);
   if (!v.length) return xs.map(_ => 0);
-
-  // work in log-space
   const y = v.map(Math.log);
-
-  // bandwidth in log-space (Silverman-ish), with a small stability floor
   let h = kdeBandwidth(y) * factor;
   if (!Number.isFinite(h) || h <= 1e-6) {
     const ymin = Math.min(...y), ymax = Math.max(...y);
     const span = (ymax - ymin) || 1;
     h = Math.max(span * 0.05, 1e-3) * factor;
   }
-
   const n = y.length;
   const invnh = 1 / (n * h);
   const out = new Array(xs.length);
-
   for (let j = 0; j < xs.length; j++) {
-    const x = Math.max(xs[j], 1e-9);     // guard (x must be > 0)
+    const x = Math.max(xs[j], 1e-9);
     const yl = Math.log(x);
     let s = 0;
     for (let i = 0; i < n; i++) s += gaussian((yl - y[i]) / h);
-    // back-transform with Jacobian 1/x
     out[j] = (s * invnh) / x;
   }
   return out;
 }
-
 const points=(xs,ys)=>xs.map((x,i)=>({x,y:ys[i]}));
 
-// multi-dataset density chart with linear x and {x,y} points
+// multi-dataset density chart
 function makeDensityChartMulti(ctx, label, xConf){
   const {min,max,step,type='linear'}=xConf;
   return new Chart(ctx,{
@@ -372,12 +468,9 @@ function makeDensityChartMulti(ctx, label, xConf){
       responsive:true, maintainAspectRatio:false, animation:false,
       layout:{padding:{left:10,right:10,bottom:8,top:4}},
       scales:{
-        x:{
-          type, min, max,
-          grid:{color:'#2a385a',tickLength:4},
-          ticks:{color:'#dfe7ff', padding:6, maxRotation:0, minRotation:0, stepSize:step, callback:(v)=>String(v)}
-        },
-        y:{min:0, max:110, grid:{color:'#2a385a',tickLength:4}, ticks:{display:false}, title:{display:false}}
+        x:{ type, min, max, grid:{color:Chart.defaults.borderColor,tickLength:4},
+            ticks:{color:Chart.defaults.color, padding:6, maxRotation:0, minRotation:0, stepSize:step, callback:(v)=>String(v)}},
+        y:{min:0, max:110, grid:{color:Chart.defaults.borderColor,tickLength:4}, ticks:{display:false}}
       },
       plugins:{
         legend:{position:'bottom',labels:{boxWidth:10,boxHeight:10,usePointStyle:true,pointStyle:'line'}},
@@ -409,10 +502,12 @@ function makeSOGChart(){ return makeSOG(); }
 // ---------- unit management ----------
 function ensureUnit(unitId){
   if(units[unitId]) return units[unitId];
-  const color=COLORS[discoveredOrder.length%COLORS.length]; discoveredOrder.push(unitId);
+  const baseColor=COLORS_BASE[discoveredOrder.length%COLORS_BASE.length];
+  const color=themedColor(baseColor); discoveredOrder.push(unitId);
   const opt=document.createElement('option'); opt.value=unitId; opt.textContent=unitId; syncRefSelect.appendChild(opt);
 
-  const u=units[unitId]={color,visible:true,
+  const u=units[unitId]={baseColor, color,
+    visible:true,
     times:[], roll:[], pitch:[],
     seriesRoll:[], seriesPitch:[],
     seriesRollPk:[], seriesPitchPk:[],
@@ -481,11 +576,11 @@ function ensureUnit(unitId){
                  rHz:$(`st-roll-hz-${unitId}`), pHz:$(`st-pitch-hz-${unitId}`),
                  sogMean:$(`st-sog-mean-${unitId}`) };
 
-  // settings checkbox (affects visibility incl. distributions)
+  // settings checkbox
   const row=document.createElement('div');
   row.innerHTML=`<label style="display:flex;gap:8px;align-items:center">
     <input type="checkbox" id="chk-${unitId}" checked/>
-    <span class="unitTag" style="background:${color}">${unitId}</span>
+    <span class="unitTag" id="tag-${unitId}" style="background:${color}">${unitId}</span>
     <span class="tiny">show/hide</span></label>`;
   unitsList.appendChild(row);
   row.querySelector('input').addEventListener('change',(e)=>{
@@ -504,6 +599,37 @@ function ensureUnit(unitId){
   if(getRefUnit()===unitId && globalT0===null) resetSyncSeries();
   chartTS.update('none'); chartSOG.update('none');
   return u;
+}
+
+// apply themed colors to all unit visuals
+function refreshUnitStylesForTheme(mode){
+  for(const id of Object.keys(units)){
+    const u=units[id];
+    const c = (mode==='light') ? darkenHex(u.baseColor,0.14) : u.baseColor;
+    u.color = c;
+    // timeseries
+    chartTS.data.datasets[u.idxRoll].borderColor = c;
+    chartTS.data.datasets[u.idxPitch].borderColor = c;
+    chartTS.data.datasets[u.idxRollPk].backgroundColor = c;
+    chartTS.data.datasets[u.idxRollPk].borderColor = c;
+    chartTS.data.datasets[u.idxPitchPk].backgroundColor = c;
+    chartTS.data.datasets[u.idxPitchPk].borderColor = c;
+    chartSOG.data.datasets[u.idxSOG].borderColor = c;
+    // map
+    if(u.poly) u.poly.setStyle({color:c});
+    if(u.marker) u.marker.setStyle({color:c, fillColor:c});
+    // tags/cards accent
+    const tag = document.getElementById(`tag-${id}`);
+    if(tag) tag.style.background = c;
+    const nowCard = u.nowElems?.roll && document.querySelector(`#now-roll-${id}`)?.closest('.uNums');
+    if(nowCard) nowCard.style.setProperty('--ucolor', c);
+    const statEl = document.querySelector(`#st-roll-mean-${id}`)?.closest('.unitStats');
+    if(statEl) statEl.style.setProperty('--ucolor', c);
+    // distributions datasets if created
+    const rI=distIdx.roll[id]; if(rI!=null){ const ds=distCharts.roll.data.datasets[rI]; ds.borderColor=c; ds.backgroundColor=c+'22'; }
+    const pI=distIdx.pitch[id]; if(pI!=null){ const ds=distCharts.pitch.data.datasets[pI]; ds.borderColor=c; ds.backgroundColor=c+'22'; }
+    const fI=distIdx.freq[id];  if(fI!=null){ const ds=distCharts.freq.data.datasets[fI]; ds.borderColor=c; ds.backgroundColor=c+'22'; }
+  }
 }
 
 // ---------- helpers: windows, axes, prune ----------
@@ -585,7 +711,6 @@ function updateUnifiedDistributions(){
   if(!distCharts.xsDeg){ distCharts.xsDeg=linspace(DEG_RANGE.min,DEG_RANGE.max,DEG_RANGE.gridCnt); }
   if(!distCharts.xsHz){  distCharts.xsHz =linspace(FREQ_RANGE.min,FREQ_RANGE.max,FREQ_RANGE.gridCnt); }
 
-  // clear/hide existing
   for(const ds of distCharts.roll.data.datasets){ ds.hidden=true; ds.data.length=0; }
   for(const ds of distCharts.pitch.data.datasets){ ds.hidden=true; ds.data.length=0; }
   for(const ds of distCharts.freq.data.datasets){ ds.hidden=true; ds.data.length=0; }
@@ -599,7 +724,7 @@ function updateUnifiedDistributions(){
     const pI=upsertDistDataset(distCharts.pitch,distIdx.pitch,id, u.color);
     const fI=upsertDistDataset(distCharts.freq, distIdx.freq, id, u.color);
 
-    if(!u.visible || !u.times.length){ 
+    if(!u.visible || !u.times.length){
       distCharts.roll.data.datasets[rI].hidden=true;
       distCharts.pitch.data.datasets[pI].hidden=true;
       distCharts.freq.data.datasets[fI].hidden=true;
@@ -612,26 +737,32 @@ function updateUnifiedDistributions(){
     if(rWin.length){
       let ys=kdeOnGridLogBack(rWin,distCharts.xsDeg,angK);
       const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
-      distCharts.roll.data.datasets[rI].data=points(distCharts.xsDeg,ys);
-      distCharts.roll.data.datasets[rI].hidden=false;
+      const ds=distCharts.roll.data.datasets[rI];
+      ds.data=points(distCharts.xsDeg,ys);
+      ds.borderColor=u.color; ds.backgroundColor=u.color+'22';
+      ds.hidden=false;
     }
 
     // pitch density
     if(pWin.length){
       let ys=kdeOnGridLogBack(pWin,distCharts.xsDeg,angK);
       const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
-      distCharts.pitch.data.datasets[pI].data=points(distCharts.xsDeg,ys);
-      distCharts.pitch.data.datasets[pI].hidden=false;
+      const ds=distCharts.pitch.data.datasets[pI];
+      ds.data=points(distCharts.xsDeg,ys);
+      ds.borderColor=u.color; ds.backgroundColor=u.color+'22';
+      ds.hidden=false;
     }
 
-    // frequency density (from roll peaks within window)
+    // frequency density
     const rPeaks=detectPeaks(rWin,tWin,parseFloat($('minDist').value||'300'),parseFloat($('minProm').value||'5.0'));
     const fSamples=freqSamplesFromPeaks(rPeaks);
     if(fSamples.length){
       let ys=kdeOnGridLogBack(fSamples,distCharts.xsHz,frqK);
       const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
-      distCharts.freq.data.datasets[fI].data=points(distCharts.xsHz,ys);
-      distCharts.freq.data.datasets[fI].hidden=false;
+      const ds=distCharts.freq.data.datasets[fI];
+      ds.data=points(distCharts.xsHz,ys);
+      ds.borderColor=u.color; ds.backgroundColor=u.color+'22';
+      ds.hidden=false;
     }
   }
 
@@ -723,6 +854,10 @@ function appendSyncedPoint(t_ref){
 }
 
 // ---------- velocity over sliding window ----------
+const Rm=6371000;
+function projLocalMeters(lat0,lon0,lat,lon){const toR=a=>a*Math.PI/180;return {x:(toR(lon)-toR(lon0))*Math.cos(toR(lat0))*Rm,y:(toR(lat)-toR(lat0))*Rm}}
+function bearingFromV(vx,vy){ const toD=a=>a*180/Math.PI; let brg=toD(Math.atan2(vx,vy)); if(brg<0) brg+=360; return brg; }
+const KNOTS_PER_MPS=1.94384449;
 function updateVelocityFromWindow(u,t,lat,lon){
   if(u.lat0===null||u.lon0===null){ u.lat0=lat; u.lon0=lon; }
   const p=projLocalMeters(u.lat0,u.lon0,lat,lon);
@@ -812,6 +947,11 @@ document.getElementById('btnUnlock').addEventListener('click',async ()=>{
     setStatus('unlocked — not connected',false);
     applyWindow(document.getElementById('winSec').value); applyViewWindow(document.getElementById('viewSec').value);
     syncRefSelect.addEventListener('change', e=>setSyncRefMode(e.target.value));
+
+    // Theme UI + initial apply
+    initThemeUI();
+    applyTheme(currentThemeChoice());
+
     if(document.getElementById('autoconn').checked) connect();
   }catch(e){ document.getElementById('unlockMsg').textContent='Wrong password or corrupted ciphertext.'; }
 });
@@ -908,6 +1048,17 @@ document.getElementById('btnClear').addEventListener('click',()=>{
   globalT0=null; syncLastMs=null; chartTS.update('none'); chartSOG.update('none'); log('cleared');
   firstMapFixDone=false; if(mapInited) map.setView([0,0],2);
 });
+
+// ---------- GNSS guards + geo ----------
+function coerceNum(v){
+  if(v===null||v===undefined) return null;
+  if(typeof v==='string'){
+    const s=v.trim().toLowerCase();
+    if(s===''||s==='null'||s==='nan'||s==='undefined') return null;
+  }
+  const n=Number(v); return Number.isFinite(n)? n : null;
+}
+function validLatLon(lat,lon){return lat!==null&&lon!==null&&Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180;}
 
 // keep axes tight to window
 setInterval(updateAxisRange,500);
