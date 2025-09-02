@@ -37,8 +37,8 @@
     --btn:#f2f6ff;
     --btn-active:#e6effe;
     --input:#f8fbff;
-    --chart-text:#22324f;   /* darker ticks for light bg */
-    --chart-grid:#c6d3ea;   /* soft grid for light bg */
+    --chart-text:#22324f;
+    --chart-grid:#c6d3ea;
     --leaflet-bg:#e6eefc;
   }
 
@@ -89,6 +89,7 @@
     <div class="tabs">
       <button class="tabbtn active" data-tab="plot">Plot</button>
       <button class="tabbtn" data-tab="stats">Stats</button>
+      <button class="tabbtn" data-tab="race">Race Setup</button>
       <button class="tabbtn" data-tab="settings">Settings</button>
     </div>
   </div>
@@ -122,7 +123,20 @@
         </div>
       </div>
       <div class="row">
+        <div class="card grow">
+          <div style="font-weight:700;margin-bottom:8px;">GNSS Map</div>
+          <div id="map"></div>
+          <div class="small" id="mapCredit" style="margin-top:6px;">Basemap © OpenStreetMap, © CARTO — Dark Matter</div>
+        </div>
+        <div class="card half">
+          <div style="font-weight:700;margin-bottom:8px;">SOG & VMG (knots)</div>
+          <div class="plot" style="height:40vh;min-height:260px;"><canvas id="chart_sog"></canvas></div>
+          <div class="small" id="sogInfo" style="margin-top:6px;"></div>
+        </div>
+      </div>
+
       <!-- Distributions by athlete (stacked) -->
+      <div class="row">
         <div class="card grow">
           <div style="font-weight:700;margin-bottom:8px;">Distributions by athlete (window)</div>
           <div class="dgrid">
@@ -141,25 +155,25 @@
           </div>
           <div class="tiny" style="margin-top:6px;">Roll/Pitch X: −40°…0°…+40°. Frequency X: 0.01–5 Hz. Y: % of that athlete’s peak (0–110%).</div>
         </div>
-
-        <div class="card half">
-          <div style="font-weight:700;margin-bottom:8px;">SOG (knots)</div>
-          <div class="plot" style="height:40vh;min-height:260px;"><canvas id="chart_sog"></canvas></div>
-          <div class="small" id="sogInfo" style="margin-top:6px;"></div>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="card grow">
-          <div style="font-weight:700;margin-bottom:8px;">GNSS Map</div>
-          <div id="map"></div>
-          <div class="small" id="mapCredit" style="margin-top:6px;">Basemap © OpenStreetMap, © CARTO — Dark Matter</div>
-        </div>
       </div>
     </section>
 
     <!-- STATS TAB -->
     <section id="tab-stats" class="hidden"><div class="row" id="statsUnits" style="width:100%"></div></section>
+
+    <!-- RACE SETUP TAB -->
+    <section id="tab-race" class="hidden">
+      <div class="row">
+        <div class="card half">
+          <div style="font-weight:700;margin-bottom:8px;">Race Setup</div>
+          <div class="btns">
+            <button id="btnTopMark">Add Top Mark</button>
+          </div>
+          <div class="small" id="topMarkInfo" style="margin-top:8px;">No top mark set.</div>
+          <div class="tiny" style="margin-top:6px;">Tip: After clicking the button, you’ll be taken to the Map; click where the top mark should be.</div>
+        </div>
+      </div>
+    </section>
 
     <!-- SETTINGS TAB -->
     <section id="tab-settings" class="hidden">
@@ -252,22 +266,6 @@
           <div class="small" id="syncInfo" style="margin-top:8px;"></div>
         </div>
 
-        <!-- Appearance -->
-        <div class="card half">
-          <div style="font-weight:700;margin-bottom:8px;">Appearance</div>
-          <div class="grid">
-            <div style="grid-column:1/-1">
-              <label>Theme</label>
-              <select id="themeSel">
-                <option value="dark">Dark</option>
-                <option value="light">Light</option>
-                <option value="auto" selected>Auto (match system)</option>
-              </select>
-            </div>
-          </div>
-          <div class="tiny" style="margin-top:6px;">Charts, UI, athlete colors, and map tiles adapt for contrast.</div>
-        </div>
-
         <div class="card grow"><div style="font-weight:700;margin-bottom:8px;">Logs</div><pre class="log" id="log"></pre></div>
       </div>
     </section>
@@ -293,15 +291,14 @@ function hexToRgb(h){h=h.replace('#',''); if(h.length===3){h=h.split('').map(c=>
 function rgbToHex({r,g,b}){const f=v=>v.toString(16).padStart(2,'0'); return '#'+f(r)+f(g)+f(b);}
 function rgbToHsl({r,g,b}){r/=255;g/=255;b/=255;const max=Math.max(r,g,b),min=Math.min(r,g,b);let h,s,l=(max+min)/2;if(max===min){h=s=0;}else{const d=max-min;s=l>0.5?d/(2-max-min):d/(max+min);switch(max){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;case b:h=(r-g)/d+4;break;}h/=6;}return {h,s,l};}
 function hslToRgb({h,s,l}){let r,g,b;if(s===0){r=g=b=l;}else{const hue2rgb=(p,q,t)=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;};const q=l<0.5?l*(1+s):l+s-l*s;const p=2*l-q;r=hue2rgb(p,q,h+1/3);g=hue2rgb(p,q,h);b=hue2rgb(p,q,h-1/3);}return {r:Math.round(r*255),g:Math.round(g*255),b:Math.round(b*255)};}
-function darkenHex(hex, amt=0.22){ // reduce lightness by amt (0..1) — stronger for light mode
-  const hsl=rgbToHsl(hexToRgb(hex)); const l=Math.max(0, hsl.l*(1-amt)); return rgbToHex(hslToRgb({...hsl,l}));
-}
+function darkenHex(hex, amt=0.22){const hsl=rgbToHsl(hexToRgb(hex)); const l=Math.max(0, hsl.l*(1-amt)); return rgbToHex(hslToRgb({...hsl,l}));}
+function cssVar(name, fallback='#ffaa00'){return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;}
 
 // ---------- chart defaults ----------
 Chart.defaults.color='#dfe7ff'; Chart.defaults.borderColor='#2a385a';
 
 // ---------- theme handling ----------
-const THEME_KEY = 'ts_theme'; // 'dark' | 'light' | 'auto'
+const THEME_KEY = 'ts_theme';
 let _mqLight = window.matchMedia('(prefers-color-scheme: light)');
 function currentThemeChoice(){ return localStorage.getItem(THEME_KEY) || 'auto'; }
 
@@ -350,6 +347,11 @@ function applyTheme(choice){
     if(window._tileLayer) map.removeLayer(window._tileLayer);
     window._tileLayer = L.tileLayer(url, {attribution:'&copy; OSM & CARTO', subdomains:'abcd', maxZoom:20});
     window._tileLayer.addTo(map);
+    // restyle top mark
+    if(topMarkLayer){
+      const accent = cssVar('--accent','#ffcc00');
+      topMarkLayer.setStyle({color:accent, fillColor:accent});
+    }
   }
   const mc = $('mapCredit'); if(mc) mc.textContent = credit;
 
@@ -383,7 +385,11 @@ let chartTS=null, chartSOG=null;
 let map=null, mapInited=false, firstMapFixDone=false;
 let globalT0=null, syncLastMs=null;
 
-// Athlete base palette (unchanged); darker variant applied only in light mode
+// top mark state
+let topMark=null; // {lat,lon}
+let topMarkLayer=null;
+
+// Athlete base palette; darker variant applied only in light mode
 const COLORS_BASE=["#4cc9f0","#ffd166","#ef476f","#06d6a0","#a78bfa","#7dd3fc","#fca5a5","#86efac"];
 function themedColor(hex){ const mode = document.documentElement.classList.contains('theme-light')?'light':'dark'; return (mode==='light') ? darkenHex(hex,0.22) : hex; }
 
@@ -436,14 +442,14 @@ function makeSOG(){
     animation:false,responsive:true,maintainAspectRatio:false,
     scales:{
       x:{type:'linear',title:{display:true,text:'time (s from start)'},ticks:{callback:v=>Number(v).toFixed(1)}},
-      y:{title:{display:true,text:'knots'},min:0,max:8}
+      y:{title:{display:true,text:'knots'},min:-8,max:8} // allow negative VMG
     },
     plugins:{legend:{position:'bottom'}}
   }});
 }
 function makeMap(){
   map=L.map('map',{zoomControl:true});
-  window._tileLayer=null; // will be set by applyTheme()
+  window._tileLayer=null; // set by applyTheme()
   map.setView([0,0],2); mapInited=true;
 }
 function fitMapIfFirst(lat,lon){ if(!firstMapFixDone){ map.setView([lat,lon],15); firstMapFixDone=true; } }
@@ -478,24 +484,16 @@ function kdeOnGridLogBack(values, xs, factor=1){
   return out;
 }
 
-/* NEW: Log-KDE with positive shift → handles negatives.
-   We shift both data and evaluation grid by C so everything is >0, do log-KDE, then back-transform.
-   f_X(x) = f_Z(x+C), where Z = X + C and f_Z(z) = f_Y(log z) * (1/z)
-*/
+/* Log-KDE with positive shift → handles negatives for angles. */
 function kdeOnGridLogBackShift(values, xs, factor=1){
   const v0 = (values || []).filter(Number.isFinite);
   if (!v0.length) return xs.map(_ => 0);
-
-  // choose C so that min(v0)+C > 0 and min(xs)+C > 0
   const minV = Math.min(...v0);
   const minX = Math.min(...xs);
   const eps = 1e-6;
   const C = Math.max( -(minV) + eps, -(minX) + eps );
-
-  const v = v0.map(x => x + C);               // shifted samples (now > 0)
-  const xsShift = xs.map(x => x + C);         // shifted grid (also > 0)
-
-  // Log-space bandwidth on shifted data
+  const v = v0.map(x => x + C);
+  const xsShift = xs.map(x => x + C);
   const y = v.map(Math.log);
   let h = kdeBandwidth(y) * factor;
   if (!Number.isFinite(h) || h <= 1e-6) {
@@ -503,17 +501,14 @@ function kdeOnGridLogBackShift(values, xs, factor=1){
     const span = (ymax - ymin) || 1;
     h = Math.max(span * 0.05, 1e-3) * factor;
   }
-
   const n = y.length;
   const invnh = 1 / (n * h);
   const out = new Array(xsShift.length);
-
   for (let j = 0; j < xsShift.length; j++) {
-    const z = Math.max(xsShift[j], eps);     // work in shifted variable z > 0
+    const z = Math.max(xsShift[j], eps);
     const yl = Math.log(z);
     let s = 0;
     for (let i = 0; i < n; i++) s += gaussian((yl - y[i]) / h);
-    // back-transform with Jacobian 1/z; then evaluate at x = z - C (implicit by using xsShift)
     out[j] = (s * invnh) / z;
   }
   return out;
@@ -577,7 +572,9 @@ function ensureUnit(unitId){
     seriesRollPk:[], seriesPitchPk:[],
     gnssLatLngs:[], lat0:null, lon0:null, posBuf:[],
     sogEMA:null, heading:null, sogTimes:[], sogVals:[], sogSeries:[],
-    idxRoll:null, idxPitch:null, idxRollPk:null, idxPitchPk:null, idxSOG:null,
+    vmgTimes:[], vmgVals:[], vmgSeries:[],
+    vx:null, vy:null,
+    idxRoll:null, idxPitch:null, idxRollPk:null, idxPitchPk:null, idxSOG:null, idxVMG:null,
     poly:null, marker:null, nowElems:{}, statsElems:{},
     lastRollHz:NaN,lastRollAt:0,lastPitchHz:NaN,lastPitchAt:0
   };
@@ -598,6 +595,10 @@ function ensureUnit(unitId){
   const sogDs={label:`${unitId} SOG`,data:u.sogSeries,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15,spanGaps:true};
   chartSOG.data.datasets.push(sogDs); u.idxSOG=chartSOG.data.datasets.length-1;
 
+  // VMG dataset (dashed)
+  const vmgDs={label:`${unitId} VMG`,data:u.vmgSeries,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15,spanGaps:true,borderDash:[4,4]};
+  chartSOG.data.datasets.push(vmgDs); u.idxVMG=chartSOG.data.datasets.length-1;
+
   // map layers
   u.poly=L.polyline([], {color,weight:3,opacity:0.95}).addTo(map);
   u.marker=L.circleMarker([0,0], {radius:6,color,fillColor:color,fillOpacity:1}).addTo(map);
@@ -611,13 +612,14 @@ function ensureUnit(unitId){
       <div><div class="small">Pitch</div><div class="num" id="now-pitch-${unitId}">–</div></div>
       <div><div class="small">Freq (Hz)</div><div class="num" id="now-hz-${unitId}">–</div></div>
       <div><div class="small">SOG (kt)</div><div class="num" id="now-sog-${unitId}">–</div></div>
+      <div><div class="small">VMG (kt)</div><div class="num" id="now-vmg-${unitId}">–</div></div>
       <div><div class="small">Mean SOG (kt)</div><div class="num" id="now-sogmean-${unitId}">–</div></div>
       <div><div class="small">Heading (°)</div><div class="num" id="now-hdg-${unitId}">–</div></div>
       <div style="grid-column:1/-1"><div class="small">Lat, Lon</div><div class="small mono" id="now-ll-${unitId}">–</div></div>
     </div>`;
   nowUnits.appendChild(nowCard);
   u.nowElems={ roll:$(`now-roll-${unitId}`), pitch:$(`now-pitch-${unitId}`), hz:$(`now-hz-${unitId}`),
-               sog:$(`now-sog-${unitId}`), sogMean:$(`now-sogmean-${unitId}`), hdg:$(`now-hdg-${unitId}`), ll:$(`now-ll-${unitId}`) };
+               sog:$(`now-sog-${unitId}`), vmg:$(`now-vmg-${unitId}`), sogMean:$(`now-sogmean-${unitId}`), hdg:$(`now-hdg-${unitId}`), ll:$(`now-ll-${unitId}`) };
 
   // Stats card
   const statsCol=document.createElement('div'); statsCol.className='card half unitStats'; statsCol.style.setProperty('--ucolor',color);
@@ -650,7 +652,7 @@ function ensureUnit(unitId){
   row.querySelector('input').addEventListener('change',(e)=>{
     u.visible=e.target.checked;
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=!u.visible);
-    chartSOG.data.datasets[u.idxSOG].hidden=!u.visible;
+    [u.idxSOG,u.idxVMG].forEach(i=>chartSOG.data.datasets[i].hidden=!u.visible);
     const rI=distIdx.roll[unitId]; if(rI!=null) distCharts.roll.data.datasets[rI].hidden=!u.visible;
     const pI=distIdx.pitch[unitId]; if(pI!=null) distCharts.pitch.data.datasets[pI].hidden=!u.visible;
     const fI=distIdx.freq[unitId];  if(fI!=null) distCharts.freq.data.datasets[fI].hidden=!u.visible;
@@ -678,7 +680,9 @@ function refreshUnitStylesForTheme(mode){
     chartTS.data.datasets[u.idxRollPk].borderColor = c;
     chartTS.data.datasets[u.idxPitchPk].backgroundColor = c;
     chartTS.data.datasets[u.idxPitchPk].borderColor = c;
+    // SOG/VMG
     chartSOG.data.datasets[u.idxSOG].borderColor = c;
+    chartSOG.data.datasets[u.idxVMG].borderColor = c;
     // map
     if(u.poly) u.poly.setStyle({color:c});
     if(u.marker) u.marker.setStyle({color:c, fillColor:c});
@@ -691,7 +695,7 @@ function refreshUnitStylesForTheme(mode){
     if(nowCard) nowCard.style.setProperty('--ucolor', c);
     const statEl = document.querySelector(`#st-roll-mean-${id}`)?.closest('.unitStats');
     if(statEl) statEl.style.setProperty('--ucolor', c);
-    // distributions datasets if created
+    // distributions datasets
     const rI=distIdx.roll[id]; if(rI!=null){ const ds=distCharts.roll.data.datasets[rI]; ds.borderColor=c; ds.backgroundColor=c+'22'; }
     const pI=distIdx.pitch[id]; if(pI!=null){ const ds=distCharts.pitch.data.datasets[pI]; ds.borderColor=c; ds.backgroundColor=c+'22'; }
     const fI=distIdx.freq[id];  if(fI!=null){ const ds=distCharts.freq.data.datasets[fI]; ds.borderColor=c; ds.backgroundColor=c+'22'; }
@@ -739,6 +743,8 @@ function pruneOld(nowMs){
     while(u.posBuf.length && u.posBuf[0].t < nowMs - getSogWinSec()*1000){u.posBuf.shift();}
     while(u.sogTimes.length && u.sogTimes[0]<nowMs-keepMs){u.sogTimes.shift();u.sogVals.shift();}
     while(u.sogSeries.length && (globalT0 + u.sogSeries[0].x*1000) < nowMs-keepMs){u.sogSeries.shift();}
+    while(u.vmgTimes.length && u.vmgTimes[0]<nowMs-keepMs){u.vmgTimes.shift();u.vmgVals.shift();}
+    while(u.vmgSeries.length && (globalT0 + u.vmgSeries[0].x*1000) < nowMs-keepMs){u.vmgSeries.shift();}
   }
 }
 
@@ -799,7 +805,7 @@ function updateUnifiedDistributions(){
 
     const {tWin,rWin,pWin}=getWindowForUnit(u,winSec);
 
-    // roll density (NEG & POS via shift→log→back)
+    // roll density via shift→log→back
     if(rWin.length){
       let ys=kdeOnGridLogBackShift(rWin,distCharts.xsDeg,angK);
       const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
@@ -809,7 +815,7 @@ function updateUnifiedDistributions(){
       ds.hidden=false;
     }
 
-    // pitch density (NEG & POS via shift→log→back)
+    // pitch density via shift→log→back
     if(pWin.length){
       let ys=kdeOnGridLogBackShift(pWin,distCharts.xsDeg,angK);
       const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
@@ -819,7 +825,7 @@ function updateUnifiedDistributions(){
       ds.hidden=false;
     }
 
-    // frequency density (positive-only, standard log-KDE)
+    // frequency density (positive-only)
     const rPeaks=detectPeaks(rWin,tWin,parseFloat($('minDist').value||'300'),parseFloat($('minProm').value||'5.0'));
     const fSamples=freqSamplesFromPeaks(rPeaks);
     if(fSamples.length){
@@ -919,11 +925,12 @@ function appendSyncedPoint(t_ref){
   chartTS.update('none'); chartSOG.update('none');
 }
 
-// ---------- velocity over sliding window ----------
+// ---------- velocity & VMG ----------
 const Rm=6371000;
 function projLocalMeters(lat0,lon0,lat,lon){const toR=a=>a*Math.PI/180;return {x:(toR(lon)-toR(lon0))*Math.cos(toR(lat0))*Rm,y:(toR(lat)-toR(lat0))*Rm}}
 function bearingFromV(vx,vy){ const toD=a=>a*180/Math.PI; let brg=toD(Math.atan2(vx,vy)); if(brg<0) brg+=360; return brg; }
 const KNOTS_PER_MPS=1.94384449;
+
 function updateVelocityFromWindow(u,t,lat,lon){
   if(u.lat0===null||u.lon0===null){ u.lat0=lat; u.lon0=lon; }
   const p=projLocalMeters(u.lat0,u.lon0,lat,lon);
@@ -941,6 +948,8 @@ function updateVelocityFromWindow(u,t,lat,lon){
   for(let i=0;i<n;i++){ const dt=times[i]-mt; sTT+=dt*dt; sTX+=dt*(xs[i]-mx); sTY+=dt*(ys[i]-my); }
   if(sTT<=0) return;
   const vx=sTX/sTT, vy=sTY/sTT;
+  u.vx=vx; u.vy=vy;
+
   const spd_mps=Math.hypot(vx,vy), spd_kt=spd_mps*KNOTS_PER_MPS;
 
   const alpha=0.2;
@@ -949,6 +958,55 @@ function updateVelocityFromWindow(u,t,lat,lon){
 
   const xPlot=(t-globalT0)/1000;
   u.sogTimes.push(t); u.sogVals.push(u.sogEMA); u.sogSeries.push({x:xPlot,y:u.sogEMA});
+
+  // VMG toward top mark (if set)
+  if(topMark){
+    const m = projLocalMeters(u.lat0,u.lon0, topMark.lat, topMark.lon);
+    const rx = m.x - p.x, ry = m.y - p.y;
+    const rmag = Math.hypot(rx,ry);
+    let vmg_kt = 0;
+    if(rmag>0){
+      const vmg_mps = (vx*rx + vy*ry) / rmag; // projection of v onto unit-to-mark
+      vmg_kt = vmg_mps * KNOTS_PER_MPS;
+    }
+    if(Number.isFinite(vmg_kt)){
+      u.vmgTimes.push(t); u.vmgVals.push(vmg_kt); u.vmgSeries.push({x:xPlot,y:vmg_kt});
+      if(u.nowElems.vmg) u.nowElems.vmg.textContent = vmg_kt.toFixed(2);
+    }
+  }
+}
+
+// ---------- Top Mark placement ----------
+function clearVMGSeriesAll(){
+  for(const id of Object.keys(units)){
+    const u=units[id];
+    u.vmgTimes.length=0; u.vmgVals.length=0; u.vmgSeries.length=0;
+  }
+  chartSOG.update('none');
+}
+function setTopMark(lat,lon){
+  topMark = {lat,lon};
+  const accent = cssVar('--accent','#ffcc00');
+  if(topMarkLayer){
+    topMarkLayer.setLatLng([lat,lon]);
+    topMarkLayer.setStyle({color:accent, fillColor:accent});
+  }else{
+    topMarkLayer = L.circleMarker([lat,lon],{radius:8,color:accent,fillColor:accent,fillOpacity:1,weight:3}).addTo(map);
+  }
+  $('topMarkInfo').textContent = `Top mark: ${lat.toFixed(6)}, ${lon.toFixed(6)} — click "Replace Top Mark" to change.`;
+  const btn=$('btnTopMark'); if(btn) btn.textContent='Replace Top Mark';
+  // VMG series belongs to this target; clear old to avoid mixing
+  clearVMGSeriesAll();
+  log(`Top mark set at ${lat.toFixed(6)}, ${lon.toFixed(6)}`);
+}
+function startPlaceTopMark(){
+  if(!mapInited){ log('map not ready'); return; }
+  selectTab('plot');
+  const msg=$('sogInfo'); if(msg) msg.textContent='Click on the map to set Top Mark…';
+  map.once('click', (e)=>{
+    setTopMark(e.latlng.lat, e.latlng.lng);
+    if(msg) msg.textContent='';
+  });
 }
 
 // ---------- Recording ----------
@@ -976,8 +1034,8 @@ function stopRec(){
 }
 
 // ---------- Tabs ----------
-document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
-  const name=b.dataset.tab; ['plot','stats','settings'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
+function selectTab(name){
+  ['plot','stats','race','settings'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
   document.getElementById('tab-'+name).classList.remove('hidden');
   document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
   if(name==='plot'){
@@ -985,7 +1043,8 @@ document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>{
     try{ distCharts.pitch.resize(); distCharts.pitch.update('none'); }catch{}
     try{ distCharts.freq.resize();  distCharts.freq.update('none'); }catch{}
   }
-}));
+}
+document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>selectTab(b.dataset.tab)));
 
 // ---------- Unlock & connect ----------
 document.getElementById('btnUnlock').addEventListener('click',async ()=>{
@@ -1017,6 +1076,9 @@ document.getElementById('btnUnlock').addEventListener('click',async ()=>{
     // Theme UI + initial apply
     initThemeUI();
     applyTheme(currentThemeChoice());
+
+    // Top Mark button
+    $('btnTopMark').addEventListener('click', startPlaceTopMark);
 
     if(document.getElementById('autoconn').checked) connect();
   }catch(e){ document.getElementById('unlockMsg').textContent='Wrong password or corrupted ciphertext.'; }
@@ -1064,7 +1126,7 @@ function connect(){
         u.poly.setLatLngs(u.gnssLatLngs);
         u.poly.setStyle({opacity:u.visible?0.95:0});
         u.marker.setLatLng([lat,lon]);
-        u.marker.setStyle({opacity:u.visible?1:0,fillOpacity:u.visible?1:0});
+        u.marker.setStyle({opacity=u.visible?1:0,fillOpacity=u.visible?1:0});
         if(!firstMapFixDone) fitMapIfFirst(lat,lon);
         if(u.nowElems.ll) u.nowElems.ll.textContent=`${lat.toFixed(6)}, ${lon.toFixed(6)}`;
 
@@ -1105,8 +1167,9 @@ document.getElementById('btnClear').addEventListener('click',()=>{
     u.gnssLatLngs.length=0; u.poly.setLatLngs([]); u.poly.setStyle({opacity:0}); u.marker.setStyle({opacity:0, fillOpacity:0});
     u.lat0=null; u.lon0=null; u.posBuf.length=0; u.sogEMA=null; u.heading=null;
     u.sogTimes.length=0; u.sogVals.length=0; u.sogSeries.length=0;
+    u.vmgTimes.length=0; u.vmgVals.length=0; u.vmgSeries.length=0;
     [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=false);
-    chartSOG.data.datasets[u.idxSOG].hidden=false;
+    [u.idxSOG,u.idxVMG].forEach(i=>chartSOG.data.datasets[i].hidden=false);
   }
   if(distCharts.roll){ for(const ds of distCharts.roll.data.datasets){ ds.data.length=0; ds.hidden=true; } distCharts.roll.update('none'); }
   if(distCharts.pitch){ for(const ds of distCharts.pitch.data.datasets){ ds.data.length=0; ds.hidden=true; } distCharts.pitch.update('none'); }
@@ -1128,6 +1191,9 @@ function validLatLon(lat,lon){return lat!==null&&lon!==null&&Number.isFinite(lat
 
 // keep axes tight to window
 setInterval(updateAxisRange,500);
+
+// Hook top mark button (in case of early access)
+const btnTM=document.getElementById('btnTopMark'); if(btnTM){ btnTM.addEventListener('click', startPlaceTopMark); }
 </script>
 </body>
 </html>
