@@ -20,8 +20,8 @@
     --btn:#152341;
     --btn-active:#152341;
     --input:#0e1730;
-    --chart-text:#dfe7ff;   /* axis tick/label color */
-    --chart-grid:#2a385a;   /* axis grid line color */
+    --chart-text:#dfe7ff;
+    --chart-grid:#2a385a;
     --leaflet-bg:#0b1220;
   }
   .theme-light{
@@ -37,8 +37,8 @@
     --btn:#f2f6ff;
     --btn-active:#e6effe;
     --input:#f8fbff;
-    --chart-text:#22324f;   /* darker ticks on light bg */
-    --chart-grid:#c6d3ea;   /* soft grid on light bg   */
+    --chart-text:#22324f;
+    --chart-grid:#c6d3ea;
     --leaflet-bg:#e6eefc;
   }
 
@@ -56,7 +56,7 @@
   .btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px} button{padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:var(--btn);color:var(--text);cursor:pointer}
   input,select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--input);color:var(--text)}
   label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.hidden{display:none}.ok{color:#1e9d4a}.bad{color:#cc2e3a}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.hidden{display:none}.ok{color:#6bd66b}.bad{color:#ff6b6b}
   .log{font-size:12px;background:var(--input);color:var(--text);padding:10px;border-radius:10px;max-height:200px;overflow:auto;border:1px dashed var(--border)}
   .plot{position:relative;height:45vh;min-height:280px;width:100%} canvas{display:block}
   .recording{background:#4a1111;border-color:#ff7a7a;color:#fff}.recording::before{content:"● ";color:var(--rec)}
@@ -264,7 +264,7 @@
               </select>
             </div>
           </div>
-          <div class="tiny" style="margin-top:6px;">Charts, axis ticks, athlete colors, and map tiles adapt for contrast.</div>
+          <div class="tiny" style="margin-top:6px;">Charts, UI, athlete colors, and map tiles adapt for contrast.</div>
         </div>
 
         <div class="card grow"><div style="font-weight:700;margin-bottom:8px;">Logs</div><pre class="log" id="log"></pre></div>
@@ -287,71 +287,40 @@ async function deriveKey(pw,salt){const enc=new TextEncoder();const mat=await cr
 async function decryptCreds(pass,blob){const j=JSON.parse(atob(blob));const key=await deriveKey(pass,b64d(j.salt));const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:b64d(j.iv)},key,b64d(j.ct));return JSON.parse(new TextDecoder().decode(new Uint8Array(pt)))}
 const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
 
-// color helpers (keep hue, DARKER for light theme)
+// color helpers (keep hue, darken for light theme)
 function hexToRgb(h){h=h.replace('#',''); if(h.length===3){h=h.split('').map(c=>c+c).join('');} const n=parseInt(h,16); return {r:(n>>16)&255,g:(n>>8)&255,b:n&255};}
 function rgbToHex({r,g,b}){const f=v=>v.toString(16).padStart(2,'0'); return '#'+f(r)+f(g)+f(b);}
 function rgbToHsl({r,g,b}){r/=255;g/=255;b/=255;const max=Math.max(r,g,b),min=Math.min(r,g,b);let h,s,l=(max+min)/2;if(max===min){h=s=0;}else{const d=max-min;s=l>0.5?d/(2-max-min):d/(max+min);switch(max){case r:h=(g-b)/d+(g<b?6:0);break;case g:h=(b-r)/d+2;break;case b:h=(r-g)/d+4;break;}h/=6;}return {h,s,l};}
 function hslToRgb({h,s,l}){let r,g,b;if(s===0){r=g=b=l;}else{const hue2rgb=(p,q,t)=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;};const q=l<0.5?l*(1+s):l+s-l*s;const p=2*l-q;r=hue2rgb(p,q,h+1/3);g=hue2rgb(p,q,h);b=hue2rgb(p,q,h-1/3);}return {r:Math.round(r*255),g:Math.round(g*255),b:Math.round(b*255)};}
-function darkenHex(hex, amt=0.22){ const hsl=rgbToHsl(hexToRgb(hex)); const l=Math.max(0, hsl.l*(1-amt)); return rgbToHex(hslToRgb({...hsl,l})); }
+function darkenHex(hex, amt=0.14){ // reduce lightness by amt (0..1)
+  const hsl=rgbToHsl(hexToRgb(hex)); const l=Math.max(0, hsl.l*(1-amt)); return rgbToHex(hslToRgb({...hsl,l}));
+}
 
-// ---------- chart defaults (will be overridden per theme) ----------
-Chart.defaults.color='#dfe7ff';
-Chart.defaults.borderColor='#2a385a';
+// ---------- chart defaults ----------
+Chart.defaults.color='#dfe7ff'; Chart.defaults.borderColor='#2a385a';
 
 // ---------- theme handling ----------
 const THEME_KEY = 'ts_theme'; // 'dark' | 'light' | 'auto'
 let _mqLight = window.matchMedia('(prefers-color-scheme: light)');
 function currentThemeChoice(){ return localStorage.getItem(THEME_KEY) || 'auto'; }
 
-// apply axis tick/grid colors to a chart instance
-function applyChartAxisColors(chart){
-  const cs = getComputedStyle(document.documentElement);
-  const tick = cs.getPropertyValue('--chart-text').trim();
-  const grid = cs.getPropertyValue('--chart-grid').trim();
-  const sc = chart.options.scales;
-  // x
-  if(sc.x){
-    sc.x.ticks = sc.x.ticks || {};
-    sc.x.grid  = sc.x.grid  || {};
-    sc.x.ticks.color = tick;
-    sc.x.grid.color  = grid;
-  }
-  // y
-  if(sc.y){
-    sc.y.ticks = sc.y.ticks || {};
-    sc.y.grid  = sc.y.grid  || {};
-    sc.y.ticks.color = tick;
-    sc.y.grid.color  = grid;
-  }
-}
-
-// apply to all charts we manage
-function applyAxisColorsAll(){
-  if(chartTS)  applyChartAxisColors(chartTS);
-  if(chartSOG) applyChartAxisColors(chartSOG);
-  if(distCharts.roll)  applyChartAxisColors(distCharts.roll);
-  if(distCharts.pitch) applyChartAxisColors(distCharts.pitch);
-  if(distCharts.freq)  applyChartAxisColors(distCharts.freq);
-}
-
-// theme switcher
 function applyTheme(choice){
   let mode = choice==='auto' ? (_mqLight.matches?'light':'dark') : choice;
   document.documentElement.classList.toggle('theme-light', mode==='light');
 
-  // status bar color (PWA)
+  // update status bar color
   const cs = getComputedStyle(document.documentElement);
   const themeColor = cs.getPropertyValue('--theme-color').trim() || '#ffffff';
   const meta = document.querySelector('meta[name="theme-color"]');
   if(meta) meta.setAttribute('content', themeColor);
 
-  // set Chart.js defaults
+  // Chart colors
   const chartText = cs.getPropertyValue('--chart-text').trim();
   const chartGrid = cs.getPropertyValue('--chart-grid').trim();
   Chart.defaults.color = chartText;
   Chart.defaults.borderColor = chartGrid;
 
-  // map tiles
+  // Map tiles
   const isLight = (mode==='light');
   const url = isLight
     ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
@@ -367,18 +336,15 @@ function applyTheme(choice){
   }
   const mc = $('mapCredit'); if(mc) mc.textContent = credit;
 
-  // darker athlete colors in light mode
+  // Re-tint athlete assets to maintain hue but darken on light theme
   refreshUnitStylesForTheme(mode);
 
-  // ensure axis ticks & grids change immediately
-  applyAxisColorsAll();
   if(chartTS) chartTS.update('none');
   if(chartSOG) chartSOG.update('none');
   if(distCharts.roll)  distCharts.roll.update('none');
   if(distCharts.pitch) distCharts.pitch.update('none');
   if(distCharts.freq)  distCharts.freq.update('none');
 }
-
 function initThemeUI(){
   const sel = $('themeSel');
   if(!sel) return;
@@ -398,9 +364,9 @@ let chartTS=null, chartSOG=null;
 let map=null, mapInited=false, firstMapFixDone=false;
 let globalT0=null, syncLastMs=null;
 
-// Original athlete colors (kept); made darker in light mode
+// Keep your original athlete colors (base). We'll darken in light theme only.
 const COLORS_BASE=["#4cc9f0","#ffd166","#ef476f","#06d6a0","#a78bfa","#7dd3fc","#fca5a5","#86efac"];
-function themedColor(hex){ const isLight=document.documentElement.classList.contains('theme-light'); return isLight ? darkenHex(hex,0.22) : hex; }
+function themedColor(hex){ const mode = document.documentElement.classList.contains('theme-light')?'light':'dark'; return (mode==='light') ? darkenHex(hex,0.14) : hex; }
 
 const units={}, discoveredOrder=[];
 const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000, GNSS_KEEP=4000;
@@ -436,29 +402,25 @@ const nowUnits=$('nowUnits'), statsUnits=$('statsUnits'), unitsList=$('unitsList
 // ---------- chart builders ----------
 function makeTimeseries(){
   const ctx=document.getElementById('chart_ts').getContext('2d');
-  const c=new Chart(ctx,{type:'line',data:{datasets:[]},options:{
+  return new Chart(ctx,{type:'line',data:{datasets:[]},options:{
     animation:false,responsive:true,maintainAspectRatio:false,
     scales:{
-      x:{type:'linear',title:{display:true,text:'time (s from start)'}},
+      x:{type:'linear',title:{display:true,text:'time (s from start)'},ticks:{callback:v=>Number(v).toFixed(1)}},
       y:{title:{display:true,text:'degrees'},min:-40,max:40}
     },
     plugins:{legend:{position:'bottom'}}
   }});
-  applyChartAxisColors(c);
-  return c;
 }
 function makeSOG(){
   const ctx=document.getElementById('chart_sog').getContext('2d');
-  const c=new Chart(ctx,{type:'line',data:{datasets:[]},options:{
+  return new Chart(ctx,{type:'line',data:{datasets:[]},options:{
     animation:false,responsive:true,maintainAspectRatio:false,
     scales:{
-      x:{type:'linear',title:{display:true,text:'time (s from start)'}},
+      x:{type:'linear',title:{display:true,text:'time (s from start)'},ticks:{callback:v=>Number(v).toFixed(1)}},
       y:{title:{display:true,text:'knots'},min:0,max:8}
     },
     plugins:{legend:{position:'bottom'}}
   }});
-  applyChartAxisColors(c);
-  return c;
 }
 function makeMap(){
   map=L.map('map',{zoomControl:true});
@@ -472,11 +434,9 @@ function linspace(min,max,n){ const a=new Array(n); const step=(max-min)/(n-1); 
 function stddev(arr){ if(!arr.length) return 0; const m=arr.reduce((s,v)=>s+v,0)/arr.length; return Math.sqrt(arr.reduce((s,v)=>s+(v-m)*(v-m),0)/arr.length); }
 function kdeBandwidth(arr){ if(arr.length<2) return 1; const s=stddev(arr); return 1.06*s*Math.pow(arr.length,-1/5); }
 function gaussian(u){ return Math.exp(-0.5*u*u)/Math.sqrt(2*Math.PI); }
-
-/** Log-KDE on strictly-positive values with 1/x back-transform */
-function kdeOnGridLogBackPositive(valuesPos, xGrid, factor=1){
-  const v = (valuesPos || []).filter(Number.isFinite).filter(x => x > 0);
-  if (!v.length) return xGrid.map(_ => 0);
+function kdeOnGridLogBack(values, xs, factor=1){
+  const v = (values || []).filter(Number.isFinite).filter(x => x > 0);
+  if (!v.length) return xs.map(_ => 0);
   const y = v.map(Math.log);
   let h = kdeBandwidth(y) * factor;
   if (!Number.isFinite(h) || h <= 1e-6) {
@@ -484,10 +444,11 @@ function kdeOnGridLogBackPositive(valuesPos, xGrid, factor=1){
     const span = (ymax - ymin) || 1;
     h = Math.max(span * 0.05, 1e-3) * factor;
   }
-  const n = y.length, invnh = 1 / (n * h);
-  const out = new Array(xGrid.length);
-  for (let j = 0; j < xGrid.length; j++) {
-    const x = Math.max(xGrid[j], 1e-9);
+  const n = y.length;
+  const invnh = 1 / (n * h);
+  const out = new Array(xs.length);
+  for (let j = 0; j < xs.length; j++) {
+    const x = Math.max(xs[j], 1e-9);
     const yl = Math.log(x);
     let s = 0;
     for (let i = 0; i < n; i++) s += gaussian((yl - y[i]) / h);
@@ -495,43 +456,21 @@ function kdeOnGridLogBackPositive(valuesPos, xGrid, factor=1){
   }
   return out;
 }
-
-/** Signed log-KDE for angles: split by sign, log-KDE on |x|, merge back */
-function kdeSignedLogBack(values, xGrid, factor=1){
-  const pos = [], negMag = [];
-  for(const v of (values||[])){
-    if(!Number.isFinite(v) || v === 0) continue;
-    if(v > 0) pos.push(v); else negMag.push(-v);
-  }
-  // Evaluate densities on |x|
-  const magGrid = xGrid.map(x => Math.abs(x));
-  const magGridPos = magGrid.map(m => Math.max(m, 1e-9));
-  const densPosMag = kdeOnGridLogBackPositive(pos,    magGridPos, factor);
-  const densNegMag = kdeOnGridLogBackPositive(negMag, magGridPos, factor);
-  // Merge side densities
-  const out = new Array(xGrid.length);
-  for(let j=0;j<xGrid.length;j++){
-    out[j] = (xGrid[j] >= 0) ? densPosMag[j] : densNegMag[j];
-  }
-  return out.map(v => Number.isFinite(v) ? v : 0);
-}
-
 const points=(xs,ys)=>xs.map((x,i)=>({x,y:ys[i]}));
 
 // multi-dataset density chart
 function makeDensityChartMulti(ctx, label, xConf){
   const {min,max,step,type='linear'}=xConf;
-  const c=new Chart(ctx,{
+  return new Chart(ctx,{
     type:'line',
     data:{datasets:[]},
     options:{
       responsive:true, maintainAspectRatio:false, animation:false,
       layout:{padding:{left:10,right:10,bottom:8,top:4}},
       scales:{
-        x:{ type, min, max,
-            ticks:{ maxRotation:0,minRotation:0, stepSize:step },
-            grid:{ tickLength:4 }},
-        y:{ min:0, max:110, ticks:{display:false}, grid:{tickLength:4} }
+        x:{ type, min, max, grid:{color:Chart.defaults.borderColor,tickLength:4},
+            ticks:{color:Chart.defaults.color, padding:6, maxRotation:0, minRotation:0, stepSize:step, callback:(v)=>String(v)}},
+        y:{min:0, max:110, grid:{color:Chart.defaults.borderColor,tickLength:4}, ticks:{display:false}}
       },
       plugins:{
         legend:{position:'bottom',labels:{boxWidth:10,boxHeight:10,usePointStyle:true,pointStyle:'line'}},
@@ -540,8 +479,6 @@ function makeDensityChartMulti(ctx, label, xConf){
       elements:{line:{tension:0.25,borderWidth:2}, point:{radius:0}}
     }
   });
-  applyChartAxisColors(c);
-  return c;
 }
 function upsertDistDataset(chart, map, unitId, color){
   if(map[unitId]!=null) return map[unitId];
@@ -620,7 +557,7 @@ function ensureUnit(unitId){
 
   // Stats card
   const statsCol=document.createElement('div'); statsCol.className='card half unitStats'; statsCol.style.setProperty('--ucolor',color);
-  statsCol.innerHTML=`<div style="font-weight:700;margin-bottom:8px;"><span class="unitTag" id="tag-${unitId}" style="background:${color}">${unitId}</span> — window stats</div>
+  statsCol.innerHTML=`<div style="font-weight:700;margin-bottom:8px;"><span class="unitTag" style="background:${color}">${unitId}</span> — window stats</div>
     <div class="grid">
       <div><div class="small">Mean Roll</div><div class="num" id="st-roll-mean-${unitId}">–</div></div>
       <div><div class="small">Std Roll</div><div class="num" id="st-roll-std-${unitId}">–</div></div>
@@ -643,9 +580,8 @@ function ensureUnit(unitId){
   const row=document.createElement('div');
   row.innerHTML=`<label style="display:flex;gap:8px;align-items:center">
     <input type="checkbox" id="chk-${unitId}" checked/>
+    <span class="unitTag" id="tag-${unitId}" style="background:${color}">${unitId}</span>
     <span class="tiny">show/hide</span></label>`;
-  // Stick unit tag into the label, to allow recolor on theme change
-  row.querySelector('label').insertBefore(statsCol.querySelector('#tag-'+unitId).cloneNode(true), row.querySelector('.tiny'));
   unitsList.appendChild(row);
   row.querySelector('input').addEventListener('change',(e)=>{
     u.visible=e.target.checked;
@@ -669,7 +605,7 @@ function ensureUnit(unitId){
 function refreshUnitStylesForTheme(mode){
   for(const id of Object.keys(units)){
     const u=units[id];
-    const c = (mode==='light') ? darkenHex(u.baseColor,0.22) : u.baseColor;
+    const c = (mode==='light') ? darkenHex(u.baseColor,0.14) : u.baseColor;
     u.color = c;
     // timeseries
     chartTS.data.datasets[u.idxRoll].borderColor = c;
@@ -683,13 +619,13 @@ function refreshUnitStylesForTheme(mode){
     if(u.poly) u.poly.setStyle({color:c});
     if(u.marker) u.marker.setStyle({color:c, fillColor:c});
     // tags/cards accent
-    const tag = document.querySelector(`#tag-${id}`);
+    const tag = document.getElementById(`tag-${id}`);
     if(tag) tag.style.background = c;
     const nowCard = u.nowElems?.roll && document.querySelector(`#now-roll-${id}`)?.closest('.uNums');
     if(nowCard) nowCard.style.setProperty('--ucolor', c);
     const statEl = document.querySelector(`#st-roll-mean-${id}`)?.closest('.unitStats');
     if(statEl) statEl.style.setProperty('--ucolor', c);
-    // distributions datasets if present
+    // distributions datasets if created
     const rI=distIdx.roll[id]; if(rI!=null){ const ds=distCharts.roll.data.datasets[rI]; ds.borderColor=c; ds.backgroundColor=c+'22'; }
     const pI=distIdx.pitch[id]; if(pI!=null){ const ds=distCharts.pitch.data.datasets[pI]; ds.borderColor=c; ds.backgroundColor=c+'22'; }
     const fI=distIdx.freq[id];  if(fI!=null){ const ds=distCharts.freq.data.datasets[fI]; ds.borderColor=c; ds.backgroundColor=c+'22'; }
@@ -775,7 +711,6 @@ function updateUnifiedDistributions(){
   if(!distCharts.xsDeg){ distCharts.xsDeg=linspace(DEG_RANGE.min,DEG_RANGE.max,DEG_RANGE.gridCnt); }
   if(!distCharts.xsHz){  distCharts.xsHz =linspace(FREQ_RANGE.min,FREQ_RANGE.max,FREQ_RANGE.gridCnt); }
 
-  // clear/hide existing
   for(const ds of distCharts.roll.data.datasets){ ds.hidden=true; ds.data.length=0; }
   for(const ds of distCharts.pitch.data.datasets){ ds.hidden=true; ds.data.length=0; }
   for(const ds of distCharts.freq.data.datasets){ ds.hidden=true; ds.data.length=0; }
@@ -798,39 +733,36 @@ function updateUnifiedDistributions(){
 
     const {tWin,rWin,pWin}=getWindowForUnit(u,winSec);
 
-    // roll density (SIGNED)
+    // roll density
     if(rWin.length){
-      let ys = kdeSignedLogBack(rWin, distCharts.xsDeg, angK);
-      const m = Math.max(...ys, 0);
-      ys = m>0 ? ys.map(y => y/m*100) : ys.map(_=>0);
-      const ds = distCharts.roll.data.datasets[rI];
-      ds.data = points(distCharts.xsDeg, ys);
-      ds.borderColor = u.color; ds.backgroundColor = u.color + '22';
-      ds.hidden = false;
+      let ys=kdeOnGridLogBack(rWin,distCharts.xsDeg,angK);
+      const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
+      const ds=distCharts.roll.data.datasets[rI];
+      ds.data=points(distCharts.xsDeg,ys);
+      ds.borderColor=u.color; ds.backgroundColor=u.color+'22';
+      ds.hidden=false;
     }
 
-    // pitch density (SIGNED)
+    // pitch density
     if(pWin.length){
-      let ys = kdeSignedLogBack(pWin, distCharts.xsDeg, angK);
-      const m = Math.max(...ys, 0);
-      ys = m>0 ? ys.map(y => y/m*100) : ys.map(_=>0);
-      const ds = distCharts.pitch.data.datasets[pI];
-      ds.data = points(distCharts.xsDeg, ys);
-      ds.borderColor = u.color; ds.backgroundColor = u.color + '22';
-      ds.hidden = false;
+      let ys=kdeOnGridLogBack(pWin,distCharts.xsDeg,angK);
+      const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
+      const ds=distCharts.pitch.data.datasets[pI];
+      ds.data=points(distCharts.xsDeg,ys);
+      ds.borderColor=u.color; ds.backgroundColor=u.color+'22';
+      ds.hidden=false;
     }
 
-    // frequency density (POSITIVE-ONLY)
+    // frequency density
     const rPeaks=detectPeaks(rWin,tWin,parseFloat($('minDist').value||'300'),parseFloat($('minProm').value||'5.0'));
     const fSamples=freqSamplesFromPeaks(rPeaks);
     if(fSamples.length){
-      let ys = kdeOnGridLogBackPositive(fSamples, distCharts.xsHz, frqK);
-      const m = Math.max(...ys, 0);
-      ys = m>0 ? ys.map(y => y/m*100) : ys.map(_=>0);
-      const ds = distCharts.freq.data.datasets[fI];
-      ds.data = points(distCharts.xsHz, ys);
-      ds.borderColor = u.color; ds.backgroundColor = u.color + '22';
-      ds.hidden = false;
+      let ys=kdeOnGridLogBack(fSamples,distCharts.xsHz,frqK);
+      const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
+      const ds=distCharts.freq.data.datasets[fI];
+      ds.data=points(distCharts.xsHz,ys);
+      ds.borderColor=u.color; ds.backgroundColor=u.color+'22';
+      ds.hidden=false;
     }
   }
 
@@ -1129,7 +1061,6 @@ function coerceNum(v){
 function validLatLon(lat,lon){return lat!==null&&lon!==null&&Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180;}
 
 // keep axes tight to window
-setInterval(applyAxisColorsAll,1500); // also refresh tick colors periodically
 setInterval(updateAxisRange,500);
 </script>
 </body>
