@@ -71,6 +71,18 @@
   .dens-wrap{position:relative;height:200px;border:1px solid var(--border);border-radius:8px;padding:6px 6px 4px 6px;background:var(--input);overflow:hidden}
   .dens-head{font-size:11px;color:var(--muted);margin:2px 0 4px 2px}
   .dens-wrap canvas{position:absolute;left:0;right:0;bottom:6px;top:22px;width:100% !important;height:auto !important}
+
+  /* --- Layout for full-width Now section + padding --- */
+  .nowRow { margin-bottom: var(--gap); }
+  #nowUnits {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 12px;
+    padding-bottom: calc(var(--gap) + 6px);
+  }
+  
+  /* Make Stats numbers use the athlete color like Now */
+  .unitStats .num { color: var(--ucolor); }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
