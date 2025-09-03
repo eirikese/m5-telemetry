@@ -256,6 +256,13 @@
           </div>
         </div>
 
+        <!-- Athlete Names & Colors -->
+        <div class="card half">
+          <div style="font-weight:700;margin-bottom:8px;">Default Athlete Names & Colors</div>
+          <div id="athleteConfigList" class="grid" style="grid-template-columns:1fr;gap:8px"></div>
+          <button id="saveAthleteConfig" style="margin-top:10px;">Save Athlete Config</button>
+          <div class="tiny" style="margin-top:6px;">Names and colors are saved in your browser and will be remembered next time.</div>
+        </div>
         <!-- Units -->
         <div class="card half">
           <div style="font-weight:700;margin-bottom:8px;">Units</div>
@@ -425,7 +432,62 @@ let placingStartPhase=0; // 0 idle, 1 awaiting A, 2 awaiting B
 
 // Athlete colors
 // Limit to four unique colors for up to four athletes
-const COLORS_BASE=["#4cc9f0","#ffd166","#ef476f","#06d6a0"];
+const ATHLETE_CONFIG_KEY = 'ts_athlete_config';
+let COLORS_BASE=["#4cc9f0","#ffd166","#ef476f","#06d6a0"];
+let ATHLETE_NAMES=["Athlete 1","Athlete 2","Athlete 3","Athlete 4"];
+
+function loadAthleteConfig() {
+  try {
+    const cfg = JSON.parse(localStorage.getItem(ATHLETE_CONFIG_KEY));
+    if (cfg && Array.isArray(cfg.colors) && Array.isArray(cfg.names)) {
+      COLORS_BASE = cfg.colors.slice(0,4);
+      ATHLETE_NAMES = cfg.names.slice(0,4);
+    }
+  } catch {}
+}
+
+function saveAthleteConfig() {
+  const colors = [], names = [];
+  for (let i = 0; i < 4; i++) {
+    colors.push(document.getElementById('athlete-color-'+i).value);
+    names.push(document.getElementById('athlete-name-'+i).value);
+  }
+  localStorage.setItem(ATHLETE_CONFIG_KEY, JSON.stringify({colors, names}));
+  COLORS_BASE = colors;
+  ATHLETE_NAMES = names;
+  log('Saved athlete config. Reload page to apply changes.');
+}
+
+function renderAthleteConfigUI() {
+  const el = document.getElementById('athleteConfigList');
+  if (!el) return;
+  el.innerHTML = '';
+  for (let i = 0; i < 4; i++) {
+    const row = document.createElement('div');
+    row.style.display = 'flex';
+    row.style.alignItems = 'center';
+    row.style.gap = '10px';
+    // Get the unit id from discoveredOrder if available
+    let unitId = discoveredOrder[i];
+    let originalName = '';
+    if (unitId && UNIT_ORIGINAL_NAMES[unitId]) {
+      originalName = UNIT_ORIGINAL_NAMES[unitId];
+    } else if (unitId) {
+      originalName = unitId;
+    }
+    row.innerHTML = `<label style="flex:1;">Name <input type="text" id="athlete-name-${i}" value="${ATHLETE_NAMES[i]}" style="width:110px;"/></label>
+      <span class="tiny" style="margin-left:6px;">${unitId ? `Original: ${originalName}` : ''}</span>
+      <label style="flex:1;">Color <input type="color" id="athlete-color-${i}" value="${COLORS_BASE[i]}" style="width:50px;"/></label>`;
+    el.appendChild(row);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  loadAthleteConfig();
+  renderAthleteConfigUI();
+  const btn = document.getElementById('saveAthleteConfig');
+  if (btn) btn.addEventListener('click', saveAthleteConfig);
+});
 function themedColor(hex){ const mode = document.documentElement.classList.contains('theme-light')?'light':'dark'; return (mode==='light') ? darkenHex(hex,0.22) : hex; }
 
 const units={}, discoveredOrder=[];
@@ -601,52 +663,54 @@ function ensureUnit(unitId){
     log('Maximum of four athletes supported. Additional units will not be shown.');
     return null;
   }
-  const baseColor=COLORS_BASE[discoveredOrder.length];
-  const color=themedColor(baseColor); discoveredOrder.push(unitId);
-  const opt=document.createElement('option'); opt.value=unitId; opt.textContent=unitId; syncRefSelect.appendChild(opt);
+  const idx = discoveredOrder.length;
+  const baseColor = COLORS_BASE[idx];
+  const customName = ATHLETE_NAMES[idx] || unitId;
+  const color = themedColor(baseColor); discoveredOrder.push(unitId);
+  const opt = document.createElement('option'); opt.value = unitId; opt.textContent = customName; syncRefSelect.appendChild(opt);
 
-  const u=units[unitId]={baseColor, color,
-    visible:true,
-    times:[], roll:[], pitch:[],
-    seriesRoll:[], seriesPitch:[],
-    seriesRollPk:[], seriesPitchPk:[],
-    gnssLatLngs:[], lat0:null, lon0:null, posBuf:[],
-    sogEMA:null, heading:null, sogTimes:[], sogVals:[], sogSeries:[],
-    vmgTimes:[], vmgVals:[], vmgSeries:[],
-    vx:null, vy:null,
-    idxRoll:null, idxPitch:null, idxRollPk:null, idxPitchPk:null, idxSOG:null, idxVMG:null,
-    poly:null, marker:null, nowElems:{}, statsElems:{},
-    lastRollHz:NaN,lastRollAt:0,lastPitchHz:NaN,lastPitchAt:0
+  const u = units[unitId] = {baseColor, color, customName, originalName: unitId,
+    visible: true,
+    times: [], roll: [], pitch: [],
+    seriesRoll: [], seriesPitch: [],
+    seriesRollPk: [], seriesPitchPk: [],
+    gnssLatLngs: [], lat0: null, lon0: null, posBuf: [],
+    sogEMA: null, heading: null, sogTimes: [], sogVals: [], sogSeries: [],
+    vmgTimes: [], vmgVals: [], vmgSeries: [],
+    vx: null, vy: null,
+    idxRoll: null, idxPitch: null, idxRollPk: null, idxPitchPk: null, idxSOG: null, idxVMG: null,
+    poly: null, marker: null, nowElems: {}, statsElems: {},
+    lastRollHz: NaN, lastRollAt: 0, lastPitchHz: NaN, lastPitchAt: 0
   };
 
   // timeseries datasets
-  const rollDs={label:`${unitId} roll`,data:u.seriesRoll,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15,spanGaps:true};
-  const pitchDs={label:`${unitId} pitch`,data:u.seriesPitch,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15,borderDash:[6,4],spanGaps:true};
-  chartTS.data.datasets.push(rollDs); u.idxRoll=chartTS.data.datasets.length-1;
-  chartTS.data.datasets.push(pitchDs); u.idxPitch=chartTS.data.datasets.length-1;
+  const rollDs = {label: `${customName} roll`, data: u.seriesRoll, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, spanGaps: true};
+  const pitchDs = {label: `${customName} pitch`, data: u.seriesPitch, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, borderDash: [6,4], spanGaps: true};
+  chartTS.data.datasets.push(rollDs); u.idxRoll = chartTS.data.datasets.length - 1;
+  chartTS.data.datasets.push(pitchDs); u.idxPitch = chartTS.data.datasets.length - 1;
 
   // peak markers
-  const rollPk={label:`${unitId} roll peaks`,type:'scatter',data:u.seriesRollPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:4,pointStyle:'circle',showLine:false};
-  const pitchPk={label:`${unitId} pitch peaks`,type:'scatter',data:u.seriesPitchPk,parsing:false,backgroundColor:color,borderColor:color,pointRadius:4,pointStyle:'circle',showLine:false};
-  chartTS.data.datasets.push(rollPk); u.idxRollPk=chartTS.data.datasets.length-1;
-  chartTS.data.datasets.push(pitchPk); u.idxPitchPk=chartTS.data.datasets.length-1;
+  const rollPk = {label: `${customName} roll peaks`, type: 'scatter', data: u.seriesRollPk, parsing: false, backgroundColor: color, borderColor: color, pointRadius: 4, pointStyle: 'circle', showLine: false};
+  const pitchPk = {label: `${customName} pitch peaks`, type: 'scatter', data: u.seriesPitchPk, parsing: false, backgroundColor: color, borderColor: color, pointRadius: 4, pointStyle: 'circle', showLine: false};
+  chartTS.data.datasets.push(rollPk); u.idxRollPk = chartTS.data.datasets.length - 1;
+  chartTS.data.datasets.push(pitchPk); u.idxPitchPk = chartTS.data.datasets.length - 1;
 
   // SOG dataset
-  const sogDs={label:`${unitId} SOG`,data:u.sogSeries,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15,spanGaps:true};
-  chartSOG.data.datasets.push(sogDs); u.idxSOG=chartSOG.data.datasets.length-1;
+  const sogDs = {label: `${customName} SOG`, data: u.sogSeries, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, spanGaps: true};
+  chartSOG.data.datasets.push(sogDs); u.idxSOG = chartSOG.data.datasets.length - 1;
 
   // VMG dataset (dashed)
-  const vmgDs={label:`${unitId} VMG`,data:u.vmgSeries,parsing:false,borderColor:color,backgroundColor:'transparent',pointRadius:0,borderWidth:2,tension:.15,spanGaps:true,borderDash:[4,4]};
-  chartSOG.data.datasets.push(vmgDs); u.idxVMG=chartSOG.data.datasets.length-1;
+  const vmgDs = {label: `${customName} VMG`, data: u.vmgSeries, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, spanGaps: true, borderDash: [4,4]};
+  chartSOG.data.datasets.push(vmgDs); u.idxVMG = chartSOG.data.datasets.length - 1;
 
   // map layers
-  u.poly=L.polyline([], {color,weight:3,opacity:0.95}).addTo(map);
-  u.marker=L.circleMarker([0,0], {radius:6,color,fillColor:color,fillOpacity:1}).addTo(map);
-  u.poly.setStyle({opacity:0}); u.marker.setStyle({opacity:0,fillOpacity:0});
+  u.poly = L.polyline([], {color, weight: 3, opacity: 0.95}).addTo(map);
+  u.marker = L.circleMarker([0,0], {radius: 6, color, fillColor: color, fillOpacity: 1}).addTo(map);
+  u.poly.setStyle({opacity: 0}); u.marker.setStyle({opacity: 0, fillOpacity: 0});
 
   // Now card (+ distances)
-  const nowCard=document.createElement('div'); nowCard.className='unitNow uNums'; nowCard.style.setProperty('--ucolor',color);
-  nowCard.innerHTML=`<div class="unitTag" id="tag-${unitId}" style="background:${color}">${unitId}</div>
+  const nowCard = document.createElement('div'); nowCard.className = 'unitNow uNums'; nowCard.style.setProperty('--ucolor', color);
+  nowCard.innerHTML = `<div class="unitTag" id="tag-${unitId}" style="background:${color}">${customName}</div>
     <div class="grid" style="grid-template-columns:1fr 1fr">
       <div><div class="small">Roll</div><div class="num" id="now-roll-${unitId}">–</div></div>
       <div><div class="small">Pitch</div><div class="num" id="now-pitch-${unitId}">–</div></div>
@@ -659,14 +723,14 @@ function ensureUnit(unitId){
       <div style="grid-column:1/-1"><div class="small">Lat, Lon</div><div class="small mono" id="now-ll-${unitId}">–</div></div>
     </div>`;
   nowUnits.appendChild(nowCard);
-  u.nowElems={ roll:$(`now-roll-${unitId}`), pitch:$(`now-pitch-${unitId}`), hz:$(`now-hz-${unitId}`),
-               sog:$(`now-sog-${unitId}`), vmg:$(`now-vmg-${unitId}`), sogMean:$(`now-sogmean-${unitId}`),
-               hdg:$(`now-hdg-${unitId}`), ll:$(`now-ll-${unitId}`),
-               dStart:$(`now-dstart-${unitId}`), dTop:$(`now-dtop-${unitId}`) };
+  u.nowElems = { roll: $(`now-roll-${unitId}`), pitch: $(`now-pitch-${unitId}`), hz: $(`now-hz-${unitId}`),
+               sog: $(`now-sog-${unitId}`), vmg: $(`now-vmg-${unitId}`), sogMean: $(`now-sogmean-${unitId}`),
+               hdg: $(`now-hdg-${unitId}`), ll: $(`now-ll-${unitId}`),
+               dStart: $(`now-dstart-${unitId}`), dTop: $(`now-dtop-${unitId}`) };
 
   // Stats card
-  const statsCol=document.createElement('div'); statsCol.className='card half unitStats'; statsCol.style.setProperty('--ucolor',color);
-  statsCol.innerHTML=`<div style="font-weight:700;margin-bottom:8px;"><span class="unitTag" style="background:${color}">${unitId}</span> — window stats</div>
+  const statsCol = document.createElement('div'); statsCol.className = 'card half unitStats'; statsCol.style.setProperty('--ucolor', color);
+  statsCol.innerHTML = `<div style="font-weight:700;margin-bottom:8px;"><span class="unitTag" style="background:${color}">${customName}</span> — window stats</div>
     <div class="grid">
       <div><div class="small">Mean Roll</div><div class="num" id="st-roll-mean-${unitId}">–</div></div>
       <div><div class="small">Std Roll</div><div class="num" id="st-roll-std-${unitId}">–</div></div>
@@ -679,33 +743,33 @@ function ensureUnit(unitId){
       <div style="grid-column:1/-1"><div class="small">Mean SOG (kt)</div><div class="num" id="st-sog-mean-${unitId}">–</div></div>
     </div>`;
   statsUnits.appendChild(statsCol);
-  u.statsElems={ rMean:$(`st-roll-mean-${unitId}`), rStd:$(`st-roll-std-${unitId}`),
-                 pMean:$(`st-pitch-mean-${unitId}`), pStd:$(`st-pitch-std-${unitId}`),
-                 rPk:$(`st-roll-pk-${unitId}`), pPk:$(`st-pitch-pk-${unitId}`),
-                 rHz:$(`st-roll-hz-${unitId}`), pHz:$(`st-pitch-hz-${unitId}`),
-                 sogMean:$(`st-sog-mean-${unitId}`) };
+  u.statsElems = { rMean: $(`st-roll-mean-${unitId}`), rStd: $(`st-roll-std-${unitId}`),
+                 pMean: $(`st-pitch-mean-${unitId}`), pStd: $(`st-pitch-std-${unitId}`),
+                 rPk: $(`st-roll-pk-${unitId}`), pPk: $(`st-pitch-pk-${unitId}`),
+                 rHz: $(`st-roll-hz-${unitId}`), pHz: $(`st-pitch-hz-${unitId}`),
+                 sogMean: $(`st-sog-mean-${unitId}`) };
 
   // settings checkbox
-  const row=document.createElement('div');
-  row.innerHTML=`<label style="display:flex;gap:8px;align-items:center">
+  const row = document.createElement('div');
+  row.innerHTML = `<label style="display:flex;gap:8px;align-items:center">
     <input type="checkbox" id="chk-${unitId}" checked/>
-    <span class="unitTag" id="tag-${unitId}-settings" style="background:${color}">${unitId}</span>
-    <span class="tiny">show/hide</span></label>`;
+    <span class="unitTag" id="tag-${unitId}-settings" style="background:${color}">${customName}</span>
+    <span class="tiny">show/hide</span><span class="tiny" style="margin-left:8px;">Original: ${unitId}</span></label>`;
   unitsList.appendChild(row);
-  row.querySelector('input').addEventListener('change',(e)=>{
-    u.visible=e.target.checked;
-    [u.idxRoll,u.idxPitch,u.idxRollPk,u.idxPitchPk].forEach(i=>chartTS.data.datasets[i].hidden=!u.visible);
-    [u.idxSOG,u.idxVMG].forEach(i=>chartSOG.data.datasets[i].hidden=!u.visible);
-    const rI=distIdx.roll[unitId]; if(rI!=null) distCharts.roll.data.datasets[rI].hidden=!u.visible;
-    const pI=distIdx.pitch[unitId]; if(pI!=null) distCharts.pitch.data.datasets[pI].hidden=!u.visible;
-    const fI=distIdx.freq[unitId];  if(fI!=null) distCharts.freq.data.datasets[fI].hidden=!u.visible;
+  row.querySelector('input').addEventListener('change', (e) => {
+    u.visible = e.target.checked;
+    [u.idxRoll, u.idxPitch, u.idxRollPk, u.idxPitchPk].forEach(i => chartTS.data.datasets[i].hidden = !u.visible);
+    [u.idxSOG, u.idxVMG].forEach(i => chartSOG.data.datasets[i].hidden = !u.visible);
+    const rI = distIdx.roll[unitId]; if (rI != null) distCharts.roll.data.datasets[rI].hidden = !u.visible;
+    const pI = distIdx.pitch[unitId]; if (pI != null) distCharts.pitch.data.datasets[pI].hidden = !u.visible;
+    const fI = distIdx.freq[unitId];  if (fI != null) distCharts.freq.data.datasets[fI].hidden = !u.visible;
     chartTS.update('none'); chartSOG.update('none');
-    if(distCharts.roll) distCharts.roll.update('none');
-    if(distCharts.pitch) distCharts.pitch.update('none');
-    if(distCharts.freq)  distCharts.freq.update('none');
+    if (distCharts.roll) distCharts.roll.update('none');
+    if (distCharts.pitch) distCharts.pitch.update('none');
+    if (distCharts.freq)  distCharts.freq.update('none');
   });
 
-  if(getRefUnit()===unitId && globalT0===null) resetSyncSeries();
+  if (getRefUnit() === unitId && globalT0 === null) resetSyncSeries();
   chartTS.update('none'); chartSOG.update('none');
   return u;
 }
@@ -995,6 +1059,7 @@ function updateDistancesForUnit(u, pxy, lat, lon){
 
 function updateVelocityFromWindow(u,t,lat,lon){
   if(u.lat0===null||u.lon0===null){ u.lat0=lat; u.lon0=lon; }
+
   const p=projLocalMeters(u.lat0,u.lon0,lat,lon);
   u.posBuf.push({t,lat,lon,x:p.x,y:p.y});
   const winMs=getSogWinSec()*1000;
@@ -1243,42 +1308,43 @@ function connect(){
       if(globalT0===null) globalT0=t;
 
       const u=ensureUnit(unit);
-      let roll=d.roll_deg, pitch=d.pitch_deg;
-      if((roll===undefined||pitch===undefined)&&d.ax!==undefined){
-        const k=180/Math.PI; roll=Math.atan2(d.ay,d.az)*k; pitch=Math.atan2(-d.ax,Math.sqrt(d.ay*d.ay+d.az*d.az))*k;
+
+      let roll = d.roll_deg, pitch = d.pitch_deg;
+      if(typeof roll !== 'number' || typeof pitch !== 'number') {
+        log('msg missing roll/pitch: ' + txt);
+        return;
       }
-      if(typeof roll!=='number'||typeof pitch!=='number'){log('msg missing roll/pitch: '+txt);return;}
 
       // raw arrival buffers
       u.times.push(t); u.roll.push(roll); u.pitch.push(pitch);
-      if(u.nowElems.roll) u.nowElems.roll.textContent=roll.toFixed(2);
-      if(u.nowElems.pitch)u.nowElems.pitch.textContent=pitch.toFixed(2);
+      if(u.nowElems.roll) u.nowElems.roll.textContent = roll.toFixed(2);
+      if(u.nowElems.pitch) u.nowElems.pitch.textContent = pitch.toFixed(2);
 
       // GNSS
-      const lat=coerceNum(d.lat), lon=coerceNum(d.lon);
-      const hasFix=validLatLon(lat,lon);
-      if(hasFix){
-        u.gnssLatLngs.push([lat,lon]);
-        if(u.gnssLatLngs.length>GNSS_KEEP) u.gnssLatLngs.shift();
+      const lat = coerceNum(d.lat), lon = coerceNum(d.lon);
+      const hasFix = validLatLon(lat, lon);
+      if(hasFix) {
+        u.gnssLatLngs.push([lat, lon]);
+        if(u.gnssLatLngs.length > GNSS_KEEP) u.gnssLatLngs.shift();
         u.poly.setLatLngs(u.gnssLatLngs);
-        u.poly.setStyle({opacity:u.visible?0.95:0});
-        u.marker.setLatLng([lat,lon]);
+        u.poly.setStyle({opacity: u.visible ? 0.95 : 0});
+        u.marker.setLatLng([lat, lon]);
         u.marker.setStyle({ opacity: (u.visible ? 1 : 0), fillOpacity: (u.visible ? 1 : 0) });
-        if(!firstMapFixDone) fitMapIfFirst(lat,lon);
-        if(u.nowElems.ll) u.nowElems.ll.textContent=`${lat.toFixed(6)}, ${lon.toFixed(6)}`;
+        if(!firstMapFixDone) fitMapIfFirst(lat, lon);
+        if(u.nowElems.ll) u.nowElems.ll.textContent = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
 
-        updateVelocityFromWindow(u,t,lat,lon);
-        if(u.nowElems.sog) u.nowElems.sog.textContent=(u.sogEMA!=null)?u.sogEMA.toFixed(2):'–';
-        if(u.nowElems.hdg) u.nowElems.hdg.textContent=(u.heading!=null)?u.heading.toFixed(0):'–';
-      } else { if(u.nowElems.ll) u.nowElems.ll.textContent='–'; }
+        updateVelocityFromWindow(u, t, lat, lon);
+        if(u.nowElems.sog) u.nowElems.sog.textContent = (u.sogEMA != null) ? u.sogEMA.toFixed(2) : '–';
+        if(u.nowElems.hdg) u.nowElems.hdg.textContent = (u.heading != null) ? u.heading.toFixed(0) : '–';
+      } else {
+        if(u.nowElems.ll) u.nowElems.ll.textContent = '–';
+      }
 
       // record if active
-      if(recActive){
+      if(recActive) {
         recRows.push({
-          unit, t, seq:d.seq, roll, pitch,
-          lat:(hasFix?lat:undefined), lon:(hasFix?lon:undefined),
-          gnss_ms:(d.gnss_ms===null||d.gnss_ms===undefined)?undefined:d.gnss_ms,
-          gnss_iso:(d.gnss_iso||'')
+          unit, t, seq: d.seq, roll, pitch,
+          lat: (hasFix ? lat : undefined), lon: (hasFix ? lon : undefined)
         });
       }
 
