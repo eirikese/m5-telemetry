@@ -115,16 +115,24 @@
     <!-- PLOT TAB -->
     <section id="tab-plot">
       <div class="row">
-        <div class="card grow" style="align-self:flex-start">
-          <div class="plot"><canvas id="chart_ts"></canvas></div>
-        </div>
         <div class="card half" id="nowPanel">
           <div style="font-weight:700;margin-bottom:8px;">Now</div>
-          <div id="nowUnits" class="grid" style="margin-top:10px;grid-template-columns:1fr;gap:12px"></div>
+          <div id="nowUnits" class="grid" style="margin-top:10px;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:12px"></div>
           <div class="btns">
             <button id="btnRecord">Start Recording</button>
             <div class="small" id="recInfo" style="align-self:center;margin-left:6px;"></div>
           </div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="card grow">
+          <div style="font-weight:700;margin-bottom:8px;">IMU Timeseries</div>
+          <div class="plot"><canvas id="chart_ts"></canvas></div>
+        </div>
+        <div class="card half">
+          <div style="font-weight:700;margin-bottom:8px;">SOG Timeseries</div>
+          <div class="plot" style="height:40vh;min-height:260px;"><canvas id="chart_sog"></canvas></div>
+          <div class="small" id="sogInfo"></div>
         </div>
       </div>
       <div class="row">
@@ -134,14 +142,6 @@
           <div class="small" id="mapCredit">Basemap © OpenStreetMap, © CARTO — Dark Matter</div>
         </div>
         <div class="card half">
-          <div style="font-weight:700;margin-bottom:8px;">SOG & VMG (knots)</div>
-          <div class="plot" style="height:40vh;min-height:260px;"><canvas id="chart_sog"></canvas></div>
-          <div class="small" id="sogInfo"></div>
-        </div>
-      </div>
-
-      <div class="row">
-        <div class="card grow">
           <div style="font-weight:700;margin-bottom:8px;">Distributions by athlete (window)</div>
           <div class="dgrid">
             <div class="dens-wrap">
@@ -424,7 +424,8 @@ let startLineMarkers={a:null,b:null};
 let placingStartPhase=0; // 0 idle, 1 awaiting A, 2 awaiting B
 
 // Athlete colors
-const COLORS_BASE=["#4cc9f0","#ffd166","#ef476f","#06d6a0","#a78bfa","#7dd3fc","#fca5a5","#86efac"];
+// Limit to four unique colors for up to four athletes
+const COLORS_BASE=["#4cc9f0","#ffd166","#ef476f","#06d6a0"];
 function themedColor(hex){ const mode = document.documentElement.classList.contains('theme-light')?'light':'dark'; return (mode==='light') ? darkenHex(hex,0.22) : hex; }
 
 const units={}, discoveredOrder=[];
@@ -595,7 +596,12 @@ function makeSOGChart(){ return makeSOG(); }
 // ---------- unit management ----------
 function ensureUnit(unitId){
   if(units[unitId]) return units[unitId];
-  const baseColor=COLORS_BASE[discoveredOrder.length%COLORS_BASE.length];
+  // Only allow up to four athletes
+  if (discoveredOrder.length >= 4 && !units[unitId]) {
+    log('Maximum of four athletes supported. Additional units will not be shown.');
+    return null;
+  }
+  const baseColor=COLORS_BASE[discoveredOrder.length];
   const color=themedColor(baseColor); discoveredOrder.push(unitId);
   const opt=document.createElement('option'); opt.value=unitId; opt.textContent=unitId; syncRefSelect.appendChild(opt);
 
