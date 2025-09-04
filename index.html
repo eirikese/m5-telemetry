@@ -43,7 +43,7 @@
   .tabbtn.active{background:var(--btn-active);border-color:var(--border)}
 
   .wrap{padding: var(--pad); display:flex; flex-direction:column; gap: var(--gap)}
-  .row{display:flex; gap: var(--gap); flex-wrap:wrap; align-items:stretch}
+  .row{display:flex; gap: var(--gap); flex-wrap:wrap; align-items:stretch; margin-bottom: var(--gap);}
   .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:var(--card-pad);box-shadow:0 1px 10px rgba(0,0,0,.2)}
   .grow{flex:1 1 560px}.half{flex:1 1 320px;min-width:300px}
 
@@ -55,7 +55,8 @@
   label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap: var(--gap)} .hidden{display:none}.ok{color:#16c26e}.bad{color:#ff6b6b}
   .log{font-size:12px;background:var(--input);color:var(--text);padding:10px;border-radius:10px;max-height:200px;overflow:auto;border:1px dashed var(--border)}
-  .plot{position:relative;height:45vh;min-height:280px;width:100%} canvas{display:block}
+  .plot{display:flex;align-items:stretch;justify-content:stretch;position:relative;height:45vh;min-height:280px;max-height:480px;width:100%}
+  .plot canvas{flex:1 1 auto;width:100%!important;height:100%!important;display:block;max-height:100%;}
   .recording{background:#4a1111;border-color:#ff7a7a;color:#fff}.recording::before{content:"● ";color:var(--rec)}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,77,77,.85)}70%{box-shadow:0 0 0 12px rgba(255,77,77,0)}100%{box-shadow:0 0 0 0 rgba(255,77,77,0)}}
   .blink{animation:pulse 1s infinite}
@@ -63,7 +64,8 @@
   .unitNow,.unitStats{border-radius:10px;padding:10px;border:1px solid var(--border);background:var(--input)}
   .unitTag{display:inline-block;padding:2px 8px;border-radius:999px;font-weight:700;margin-bottom:6px;color:#000}
   .uNums .num{color:var(--ucolor)}
-  #map{height:40vh;min-height:260px;border-radius:12px;overflow:hidden}
+  #map{height:45vh;max-height:590px;min-height:220px;border-radius:12px;overflow:hidden;display:flex;width:100%}
+  .leaflet-container{flex:1 1 auto;width:100%!important;height:100%!important;background:var(--leaflet-bg)}
   .leaflet-container{background:var(--leaflet-bg)}
 
   /* Densities */
@@ -138,6 +140,10 @@
       <div class="row">
         <div class="card grow">
           <div style="font-weight:700;margin-bottom:8px;">GNSS Map</div>
+          <div class="btns" style="margin-bottom:8px;">
+            <button id="btnTopMark">Add Top Mark</button>
+            <button id="btnStartLine">Add Start Line</button>
+          </div>
           <div id="map"></div>
           <div class="small" id="mapCredit">Basemap © OpenStreetMap, © CARTO — Dark Matter</div>
         </div>
@@ -1120,6 +1126,7 @@ function clearVMGSeriesAll(){
 function setTopMark(lat,lon){
   topMark = {lat,lon};
   const accent = cssVar('--accent','#ffcc00');
+  window._topMarkCoords = {lat, lon};
   if(topMarkLayer){
     topMarkLayer.setLatLng([lat,lon]);
     topMarkLayer.setStyle({color:accent, fillColor:accent});
@@ -1144,6 +1151,7 @@ function startPlaceTopMark(){
 // ---------- Start Line placement (two clicks, show first point immediately) ----------
 function setStartLine(aLat,aLon,bLat,bLon){
   startLine = { a:{lat:aLat,lon:aLon}, b:{lat:bLat,lon:bLon} };
+  window._startLineCoords = {a:{lat:aLat,lon:aLon}, b:{lat:bLat,lon:bLon}};
   const accent = cssVar('--accent','#ffcc00');
 
   if(startLineLayer){
@@ -1219,6 +1227,23 @@ function stopRec(){
   if(!recRows.length){recInfo.textContent="No samples recorded.";log("no samples to save");return;}
   const header=['unit_id','timestamp_ms','iso_time','elapsed_s','seq','roll_deg','pitch_deg','lat','lon','gnss_ms','gnss_iso'];
   const lines=[header.join(',')];
+  // Add top_mark and start line info after header
+  let topMarkLine = 'top_mark', startPt1Line = 'start_pt1', startPt2Line = 'start_pt2';
+  if(window._topMarkCoords && typeof window._topMarkCoords.lat === 'number' && typeof window._topMarkCoords.lon === 'number') {
+    topMarkLine += `,${window._topMarkCoords.lat.toFixed(6)},${window._topMarkCoords.lon.toFixed(6)}`;
+  } else {
+    topMarkLine += ',,';
+  }
+  if(window._startLineCoords && window._startLineCoords.a && window._startLineCoords.b) {
+    startPt1Line += `,${window._startLineCoords.a.lat.toFixed(6)},${window._startLineCoords.a.lon.toFixed(6)}`;
+    startPt2Line += `,${window._startLineCoords.b.lat.toFixed(6)},${window._startLineCoords.b.lon.toFixed(6)}`;
+  } else {
+    startPt1Line += ',,';
+    startPt2Line += ',,';
+  }
+  lines.push(topMarkLine);
+  lines.push(startPt1Line);
+  lines.push(startPt2Line);
   for(const r of recRows){
     const iso=new Date(r.t).toISOString();
     lines.push([r.unit,r.t,`"${iso.replace(/"/g,'""')}"`,
@@ -1294,7 +1319,12 @@ function connect(){
   document.getElementById('cid').value=cid; const url=`wss://${host}:${port}${path}`; document.getElementById('url').textContent=url;
 
   client=mqtt.connect(url,{protocolVersion:4,clean:true,connectTimeout:8000,username:viewer.user,password:viewer.pass,clientId:cid,keepalive:30,resubscribe:true});
-  client.on('connect',()=>{setStatus('connected',true);client.subscribe(topic,{qos:0});log('connected & subscribed: '+topic);});
+  client.on('connect',()=>{
+    setStatus('connected',true);
+    client.subscribe(topic,{qos:0});
+    client.subscribe('m5/marks',{qos:0});
+    log('connected & subscribed: '+topic+' and m5/marks');
+  });
   client.on('reconnect',()=>{setStatus('reconnecting…',false);log('reconnecting');});
   client.on('close',()=>{setStatus('disconnected',false);log('closed');});
   client.on('error',e=>{setStatus('error',false);log('error: '+(e?.message||e));});
@@ -1303,6 +1333,18 @@ function connect(){
       const t=Date.now();
       let txt; try{txt=new TextDecoder().decode(payload);}catch{txt=payload.toString?payload.toString():'';}
       const d=JSON.parse(txt);
+      if(topic === 'm5/marks') {
+        // Handle marks update from replay
+        if(typeof d.top_mark_lat === 'number' && typeof d.top_mark_lon === 'number') {
+          setTopMark(d.top_mark_lat, d.top_mark_lon);
+        }
+        if(typeof d.start_pt1_lat === 'number' && typeof d.start_pt1_lon === 'number' && typeof d.start_pt2_lat === 'number' && typeof d.start_pt2_lon === 'number') {
+          setStartLine(d.start_pt1_lat, d.start_pt1_lon, d.start_pt2_lat, d.start_pt2_lon);
+        }
+        log('Received marks update from replay.');
+        return;
+      }
+      // ...existing code...
       let unit=d.unit_id; if(!unit){const m=topic.split('/'); if(m.length>=3) unit=m[1];}
       if(!unit) unit='unknown';
       if(globalT0===null) globalT0=t;
@@ -1320,7 +1362,15 @@ function connect(){
       if(u.nowElems.roll) u.nowElems.roll.textContent = roll.toFixed(2);
       if(u.nowElems.pitch) u.nowElems.pitch.textContent = pitch.toFixed(2);
 
-      // GNSS
+      // Handle top mark and start line updates
+      if(typeof d.top_mark_lat === 'number' && typeof d.top_mark_lon === 'number') {
+        setTopMark(d.top_mark_lat, d.top_mark_lon);
+      }
+      if(typeof d.start_pt1_lat === 'number' && typeof d.start_pt1_lon === 'number' && typeof d.start_pt2_lat === 'number' && typeof d.start_pt2_lon === 'number') {
+        setStartLine(d.start_pt1_lat, d.start_pt1_lon, d.start_pt2_lat, d.start_pt2_lon);
+      }
+
+      // ...existing code...
       const lat = coerceNum(d.lat), lon = coerceNum(d.lon);
       const hasFix = validLatLon(lat, lon);
       if(hasFix) {
@@ -1343,8 +1393,18 @@ function connect(){
       // record if active
       if(recActive) {
         recRows.push({
-          unit, t, seq: d.seq, roll, pitch,
-          lat: (hasFix ? lat : undefined), lon: (hasFix ? lon : undefined)
+          unit,
+          t,
+          seq: d.seq ?? '',
+          roll: (typeof d.roll_deg === 'number' ? d.roll_deg : (typeof d.roll === 'number' ? d.roll : '')),
+          pitch: (typeof d.pitch_deg === 'number' ? d.pitch_deg : (typeof d.pitch === 'number' ? d.pitch : '')),
+          lat: (hasFix ? lat : ''),
+          lon: (hasFix ? lon : ''),
+          gnss_ms: d.gnss_ms ?? '',
+          gnss_iso: d.gnss_iso ?? '',
+          ax: (typeof d.ax === 'number' ? d.ax : ''),
+          ay: (typeof d.ay === 'number' ? d.ay : ''),
+          az: (typeof d.az === 'number' ? d.az : '')
         });
       }
 
