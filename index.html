@@ -1184,8 +1184,32 @@ function startPlaceStartLine(){
 const btnRecord=$('btnRecord'), recInfo=$('recInfo');
 btnRecord.addEventListener('click',()=>{ if(!recActive){ startRec(); } else { stopRec(); } });
 
-// Store all recordings in session
+// Store all recordings in session and persist to localStorage by date
 let allRecordings = [];
+
+function getTodayKey() {
+  const d = new Date();
+  return `recordings_${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+function saveRecordingsToStorage() {
+  try {
+    localStorage.setItem(getTodayKey(), JSON.stringify(allRecordings));
+  } catch (e) { console.warn('Failed to save recordings:', e); }
+}
+
+function loadRecordingsFromStorage() {
+  try {
+    const data = localStorage.getItem(getTodayKey());
+    if (data) {
+      allRecordings = JSON.parse(data);
+      generateReportsTabs();
+    }
+  } catch (e) { console.warn('Failed to load recordings:', e); }
+}
+
+// Load on startup
+window.addEventListener('DOMContentLoaded', loadRecordingsFromStorage);
 
 function startRec(){
   recActive=true; recRows=[]; recStartedAt=Date.now();
@@ -1209,6 +1233,7 @@ function stopRec(){
     startLine: window._startLineCoords ? {...window._startLineCoords} : null
   };
   allRecordings.push(recording);
+  saveRecordingsToStorage();
   generateReportsTabs();
 
   // CSV download (unchanged)
@@ -1259,9 +1284,9 @@ function generateReportsTabs() {
   allRecordings.forEach((rec, idx) => {
     const btn = document.createElement('button');
     btn.className = 'tabbtn' + (idx === allRecordings.length-1 ? ' active' : '');
-    // Format start time as HH:MM:SS
-    let label = `Recording ${idx+1}`;
-    if (rec.startedAt) {
+    // Use custom label if set, else format start time as HH:MM:SS
+    let label = rec.label && rec.label.trim() ? rec.label : `Recording ${idx+1}`;
+    if (!rec.label && rec.startedAt) {
       const d = new Date(rec.startedAt);
       if (!isNaN(d.getTime())) {
         const h = String(d.getHours()).padStart(2, '0');
@@ -1275,6 +1300,46 @@ function generateReportsTabs() {
     btn.onclick = () => showReportFor(rec.id);
     tabsEl.appendChild(btn);
   });
+  // Add delete button
+  const delBtn = document.createElement('button');
+  delBtn.textContent = 'Delete Selected Report';
+  delBtn.className = 'small';
+  delBtn.style.marginLeft = '16px';
+  delBtn.onclick = function() {
+    const activeBtn = tabsEl.querySelector('.tabbtn.active');
+    if (!activeBtn) return;
+    const recId = activeBtn.dataset.recId;
+    const idx = allRecordings.findIndex(r => r.id === recId);
+    if (idx !== -1) {
+      if (confirm('Delete this report?')) {
+        allRecordings.splice(idx, 1);
+        saveRecordingsToStorage();
+        generateReportsTabs();
+      }
+    }
+  };
+  tabsEl.appendChild(delBtn);
+
+  // Add rename button
+  const renBtn = document.createElement('button');
+  renBtn.textContent = 'Rename Selected Report';
+  renBtn.className = 'small';
+  renBtn.style.marginLeft = '8px';
+  renBtn.onclick = function() {
+    const activeBtn = tabsEl.querySelector('.tabbtn.active');
+    if (!activeBtn) return;
+    const recId = activeBtn.dataset.recId;
+    const rec = allRecordings.find(r => r.id === recId);
+    if (rec) {
+      const newName = prompt('Enter new name for this report:', rec.label || '');
+      if (newName && newName.trim()) {
+        rec.label = newName.trim();
+        saveRecordingsToStorage();
+        generateReportsTabs();
+      }
+    }
+  };
+  tabsEl.appendChild(renBtn);
   // Show latest by default
   showReportFor(allRecordings[allRecordings.length-1].id);
 }
