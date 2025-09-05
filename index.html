@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<title>TrollSports Live v1.5.8</title>
+<title>TrollSports Live v1.5.9</title>
 <meta name="theme-color" content="#0b1220"/>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -85,6 +85,13 @@
   
   /* Make Stats numbers use the athlete color like Now */
   .unitStats .num { color: var(--ucolor); }
+
+  /* Make map in Map tab large */
+  #tab-map #map {
+    height: 70vh !important;
+    max-height: 1000px !important;
+    min-height: 320px !important;
+  }
 </style>
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
@@ -93,12 +100,15 @@
 <body>
   <div class="topbar">
     <div class="app-title">TrollSports Live</div><div class="spacer"></div>
-    <div class="ver">v1.5.8</div>
+    <div class="ver">v1.5.9</div>
     <div class="tabs">
-      <button class="tabbtn active" data-tab="plot">Plot</button>
-      <button class="tabbtn" data-tab="stats">Stats</button>
-      <button class="tabbtn" data-tab="settings">Settings</button>
+  <button class="tabbtn active" data-tab="plot">Plot</button>
+  <button class="tabbtn" data-tab="map">Map</button>
+  <button class="tabbtn" data-tab="stats">Stats</button>
+  <button class="tabbtn" data-tab="reports">Reports</button>
+  <button class="tabbtn" data-tab="settings">Settings</button>
     </div>
+    <button id="btnRecord" style="margin-left:16px;">Start Recording</button>
   </div>
 
   <!-- Gate -->
@@ -120,10 +130,6 @@
         <div class="card half" id="nowPanel">
           <div style="font-weight:700;margin-bottom:8px;">Now</div>
           <div id="nowUnits" class="grid" style="margin-top:10px;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:12px"></div>
-          <div class="btns">
-            <button id="btnRecord">Start Recording</button>
-            <div class="small" id="recInfo" style="align-self:center;margin-left:6px;"></div>
-          </div>
         </div>
       </div>
       <div class="row">
@@ -138,15 +144,6 @@
         </div>
       </div>
       <div class="row">
-        <div class="card grow">
-          <div style="font-weight:700;margin-bottom:8px;">GNSS Map</div>
-          <div class="btns" style="margin-bottom:8px;">
-            <button id="btnTopMark">Add Top Mark</button>
-            <button id="btnStartLine">Add Start Line</button>
-          </div>
-          <div id="map"></div>
-          <div class="small" id="mapCredit">Basemap © OpenStreetMap, © CARTO — Dark Matter</div>
-        </div>
         <div class="card half">
           <div style="font-weight:700;margin-bottom:8px;">Distributions by athlete (window)</div>
           <div class="dgrid">
@@ -168,8 +165,35 @@
       </div>
     </section>
 
+    <!-- MAP TAB -->
+    <section id="tab-map" class="hidden">
+      <div class="row">
+        <div class="card grow">
+          <div style="font-weight:700;margin-bottom:8px;">GNSS Map</div>
+          <div class="btns" style="margin-bottom:8px;">
+            <button id="btnTopMark">Add Top Mark</button>
+            <button id="btnStartLine">Add Start Line</button>
+          </div>
+          <div id="map"></div>
+          <div class="small" id="mapCredit">Basemap © OpenStreetMap, © CARTO — Dark Matter</div>
+        </div>
+      </div>
+    </section>
+
+
     <!-- STATS TAB -->
     <section id="tab-stats" class="hidden"><div class="row" id="statsUnits" style="width:100%"></div></section>
+
+    <!-- REPORTS TAB -->
+    <section id="tab-reports" class="hidden">
+      <div class="row">
+        <div class="card grow">
+          <div style="font-weight:700;margin-bottom:8px;">Reports</div>
+          <div id="reportsTabs" class="tabs" style="margin-bottom:12px;"></div>
+          <div id="reportsContent"></div>
+        </div>
+      </div>
+    </section>
 
     <!-- SETTINGS TAB (with Appearance + Race Setup) -->
     <section id="tab-settings" class="hidden">
@@ -262,13 +286,6 @@
           </div>
         </div>
 
-        <!-- Athlete Names & Colors -->
-        <div class="card half">
-          <div style="font-weight:700;margin-bottom:8px;">Default Athlete Names & Colors</div>
-          <div id="athleteConfigList" class="grid" style="grid-template-columns:1fr;gap:8px"></div>
-          <button id="saveAthleteConfig" style="margin-top:10px;">Save Athlete Config</button>
-          <div class="tiny" style="margin-top:6px;">Names and colors are saved in your browser and will be remembered next time.</div>
-        </div>
         <!-- Units -->
         <div class="card half">
           <div style="font-weight:700;margin-bottom:8px;">Units</div>
@@ -310,7 +327,7 @@
   </div>
 
 <script>
-const APP_VERSION="v1.5.8";
+const APP_VERSION="v1.5.9";
 const ENCRYPTED_CREDS="eyJzYWx0IjoiYU01amVaRG9rd0o5dmVDc1gwTjhoQT09IiwiaXYiOiJuTEdVM2NldmhSSGFVR2ZmIiwiY3QiOiIzeVZaUkxnRUNxaWxicU92QmExZlJkcVZUb1ZiM3NvZFArd2svK3FxTW9NZGRYZHV5V2gveTV3WmVxakZlZkV6L2ZpZjN6SEpqU3Z0TXd2OCJ9";
 const $=id=>document.getElementById(id);
 
@@ -436,64 +453,8 @@ let startLineLayer=null;
 let startLineMarkers={a:null,b:null};
 let placingStartPhase=0; // 0 idle, 1 awaiting A, 2 awaiting B
 
-// Athlete colors
-// Limit to four unique colors for up to four athletes
-const ATHLETE_CONFIG_KEY = 'ts_athlete_config';
+// Athlete colors (fixed, not user-editable)
 let COLORS_BASE=["#4cc9f0","#ffd166","#ef476f","#06d6a0"];
-let ATHLETE_NAMES=["Athlete 1","Athlete 2","Athlete 3","Athlete 4"];
-
-function loadAthleteConfig() {
-  try {
-    const cfg = JSON.parse(localStorage.getItem(ATHLETE_CONFIG_KEY));
-    if (cfg && Array.isArray(cfg.colors) && Array.isArray(cfg.names)) {
-      COLORS_BASE = cfg.colors.slice(0,4);
-      ATHLETE_NAMES = cfg.names.slice(0,4);
-    }
-  } catch {}
-}
-
-function saveAthleteConfig() {
-  const colors = [], names = [];
-  for (let i = 0; i < 4; i++) {
-    colors.push(document.getElementById('athlete-color-'+i).value);
-    names.push(document.getElementById('athlete-name-'+i).value);
-  }
-  localStorage.setItem(ATHLETE_CONFIG_KEY, JSON.stringify({colors, names}));
-  COLORS_BASE = colors;
-  ATHLETE_NAMES = names;
-  log('Saved athlete config. Reload page to apply changes.');
-}
-
-function renderAthleteConfigUI() {
-  const el = document.getElementById('athleteConfigList');
-  if (!el) return;
-  el.innerHTML = '';
-  for (let i = 0; i < 4; i++) {
-    const row = document.createElement('div');
-    row.style.display = 'flex';
-    row.style.alignItems = 'center';
-    row.style.gap = '10px';
-    // Get the unit id from discoveredOrder if available
-    let unitId = discoveredOrder[i];
-    let originalName = '';
-    if (unitId && UNIT_ORIGINAL_NAMES[unitId]) {
-      originalName = UNIT_ORIGINAL_NAMES[unitId];
-    } else if (unitId) {
-      originalName = unitId;
-    }
-    row.innerHTML = `<label style="flex:1;">Name <input type="text" id="athlete-name-${i}" value="${ATHLETE_NAMES[i]}" style="width:110px;"/></label>
-      <span class="tiny" style="margin-left:6px;">${unitId ? `Original: ${originalName}` : ''}</span>
-      <label style="flex:1;">Color <input type="color" id="athlete-color-${i}" value="${COLORS_BASE[i]}" style="width:50px;"/></label>`;
-    el.appendChild(row);
-  }
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  loadAthleteConfig();
-  renderAthleteConfigUI();
-  const btn = document.getElementById('saveAthleteConfig');
-  if (btn) btn.addEventListener('click', saveAthleteConfig);
-});
 function themedColor(hex){ const mode = document.documentElement.classList.contains('theme-light')?'light':'dark'; return (mode==='light') ? darkenHex(hex,0.22) : hex; }
 
 const units={}, discoveredOrder=[];
@@ -671,7 +632,7 @@ function ensureUnit(unitId){
   }
   const idx = discoveredOrder.length;
   const baseColor = COLORS_BASE[idx];
-  const customName = ATHLETE_NAMES[idx] || unitId;
+  const customName = unitId;
   const color = themedColor(baseColor); discoveredOrder.push(unitId);
   const opt = document.createElement('option'); opt.value = unitId; opt.textContent = customName; syncRefSelect.appendChild(opt);
 
@@ -690,23 +651,23 @@ function ensureUnit(unitId){
   };
 
   // timeseries datasets
-  const rollDs = {label: `${customName} roll`, data: u.seriesRoll, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, spanGaps: true};
-  const pitchDs = {label: `${customName} pitch`, data: u.seriesPitch, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, borderDash: [6,4], spanGaps: true};
+  const rollDs = {label: `${unitId} roll`, data: u.seriesRoll, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, spanGaps: true};
+  const pitchDs = {label: `${unitId} pitch`, data: u.seriesPitch, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, borderDash: [6,4], spanGaps: true};
   chartTS.data.datasets.push(rollDs); u.idxRoll = chartTS.data.datasets.length - 1;
   chartTS.data.datasets.push(pitchDs); u.idxPitch = chartTS.data.datasets.length - 1;
 
   // peak markers
-  const rollPk = {label: `${customName} roll peaks`, type: 'scatter', data: u.seriesRollPk, parsing: false, backgroundColor: color, borderColor: color, pointRadius: 4, pointStyle: 'circle', showLine: false};
-  const pitchPk = {label: `${customName} pitch peaks`, type: 'scatter', data: u.seriesPitchPk, parsing: false, backgroundColor: color, borderColor: color, pointRadius: 4, pointStyle: 'circle', showLine: false};
+  const rollPk = {label: `${unitId} roll peaks`, type: 'scatter', data: u.seriesRollPk, parsing: false, backgroundColor: color, borderColor: color, pointRadius: 4, pointStyle: 'circle', showLine: false};
+  const pitchPk = {label: `${unitId} pitch peaks`, type: 'scatter', data: u.seriesPitchPk, parsing: false, backgroundColor: color, borderColor: color, pointRadius: 4, pointStyle: 'circle', showLine: false};
   chartTS.data.datasets.push(rollPk); u.idxRollPk = chartTS.data.datasets.length - 1;
   chartTS.data.datasets.push(pitchPk); u.idxPitchPk = chartTS.data.datasets.length - 1;
 
   // SOG dataset
-  const sogDs = {label: `${customName} SOG`, data: u.sogSeries, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, spanGaps: true};
+  const sogDs = {label: `${unitId} SOG`, data: u.sogSeries, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, spanGaps: true};
   chartSOG.data.datasets.push(sogDs); u.idxSOG = chartSOG.data.datasets.length - 1;
 
   // VMG dataset (dashed)
-  const vmgDs = {label: `${customName} VMG`, data: u.vmgSeries, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, spanGaps: true, borderDash: [4,4]};
+  const vmgDs = {label: `${unitId} VMG`, data: u.vmgSeries, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, spanGaps: true, borderDash: [4,4]};
   chartSOG.data.datasets.push(vmgDs); u.idxVMG = chartSOG.data.datasets.length - 1;
 
   // map layers
@@ -716,7 +677,7 @@ function ensureUnit(unitId){
 
   // Now card (+ distances)
   const nowCard = document.createElement('div'); nowCard.className = 'unitNow uNums'; nowCard.style.setProperty('--ucolor', color);
-  nowCard.innerHTML = `<div class="unitTag" id="tag-${unitId}" style="background:${color}">${customName}</div>
+  nowCard.innerHTML = `<div class="unitTag" id="tag-${unitId}" style="background:${color}">${unitId}</div>
     <div class="grid" style="grid-template-columns:1fr 1fr">
       <div><div class="small">Roll</div><div class="num" id="now-roll-${unitId}">–</div></div>
       <div><div class="small">Pitch</div><div class="num" id="now-pitch-${unitId}">–</div></div>
@@ -947,7 +908,7 @@ function recomputePeaksAndStatsAll(){
   const winSec=parseFloat(winNum.value||'30'), minDist=parseFloat($('minDist').value||'300'), minProm=parseFloat($('minProm').value||'5.0');
 
   for(const id of Object.keys(units)){
-    const u=units[id]; if(!u.times.length) continue;
+    const u=units[id]; if(!u.times.length) return;
     const {tWin,rWin,pWin,nowU,startMs}=getWindowForUnit(u,winSec);
 
     const rPeaks=detectPeaks(rWin,tWin,minDist,minProm);
@@ -1140,7 +1101,7 @@ function setTopMark(lat,lon){
 }
 function startPlaceTopMark(){
   if(!mapInited){ log('map not ready'); return; }
-  selectTab('plot');
+  // Do NOT switch tab
   const msg=$('sogInfo'); if(msg) msg.textContent='Click on the map to set Top Mark…';
   map.once('click', (e)=>{
     setTopMark(e.latlng.lat, e.latlng.lng);
@@ -1179,7 +1140,7 @@ function setStartLine(aLat,aLon,bLat,bLon){
 
 function startPlaceStartLine(){
   if(!mapInited){ log('map not ready'); return; }
-  selectTab('plot');
+  // Do NOT switch tab
   placingStartPhase = 1;
   $('sogInfo').textContent = 'Click on the map to set start line point A…';
   let A = null;
@@ -1203,6 +1164,7 @@ function startPlaceStartLine(){
     map.once('click', clickB);
   };
   const clickB = (e)=>{
+
     const B = e.latlng;
     // Reveal/update B marker immediately too
     if(!startLineMarkers.b){
@@ -1218,16 +1180,40 @@ function startPlaceStartLine(){
   map.once('click', clickA);
 }
 
-// ---------- Recording ----------
+// ---------- Recording & Reports ----------
 const btnRecord=$('btnRecord'), recInfo=$('recInfo');
 btnRecord.addEventListener('click',()=>{ if(!recActive){ startRec(); } else { stopRec(); } });
-function startRec(){ recActive=true; recRows=[]; recStartedAt=Date.now(); btnRecord.textContent="Stop & Save"; btnRecord.classList.add('recording','blink'); if(window._rt) clearInterval(window._rt); window._rt=setInterval(()=>{recInfo.textContent=`Recording… ${((Date.now()-recStartedAt)/1000).toFixed(1)} s`;},200); log("recording started"); }
+
+// Store all recordings in session
+let allRecordings = [];
+
+function startRec(){
+  recActive=true; recRows=[]; recStartedAt=Date.now();
+  btnRecord.textContent="Stop & Save"; btnRecord.classList.add('recording','blink');
+  if(window._rt) clearInterval(window._rt);
+  window._rt=setInterval(()=>{recInfo.textContent=`Recording… ${((Date.now()-recStartedAt)/1000).toFixed(1)} s`;},200);
+  log("recording started");
+}
+
 function stopRec(){
-  recActive=false; btnRecord.textContent="Start Recording"; btnRecord.classList.remove('recording','blink'); if(window._rt){clearInterval(window._rt);window._rt=null;}
+  recActive=false; btnRecord.textContent="Start Recording"; btnRecord.classList.remove('recording','blink');
+  if(window._rt){clearInterval(window._rt);window._rt=null;}
   if(!recRows.length){recInfo.textContent="No samples recorded.";log("no samples to save");return;}
+
+  // Save recording data for reports
+  const recording = {
+    id: 'rec-' + (allRecordings.length+1),
+    startedAt: recStartedAt,
+    rows: recRows.slice(),
+    topMark: window._topMarkCoords ? {...window._topMarkCoords} : null,
+    startLine: window._startLineCoords ? {...window._startLineCoords} : null
+  };
+  allRecordings.push(recording);
+  generateReportsTabs();
+
+  // CSV download (unchanged)
   const header=['unit_id','timestamp_ms','iso_time','elapsed_s','seq','roll_deg','pitch_deg','lat','lon','gnss_ms','gnss_iso'];
   const lines=[header.join(',')];
-  // Add top_mark and start line info after header
   let topMarkLine = 'top_mark', startPt1Line = 'start_pt1', startPt2Line = 'start_pt2';
   if(window._topMarkCoords && typeof window._topMarkCoords.lat === 'number' && typeof window._topMarkCoords.lon === 'number') {
     topMarkLine += `,${window._topMarkCoords.lat.toFixed(6)},${window._topMarkCoords.lon.toFixed(6)}`;
@@ -1259,15 +1245,487 @@ function stopRec(){
   recInfo.textContent=`Saved ${recRows.length} samples to ${fname}`; log(`saved CSV (${recRows.length} rows)`);
 }
 
+// Generate Reports tab subtabs and content
+function generateReportsTabs() {
+  const tabsEl = document.getElementById('reportsTabs');
+  const contentEl = document.getElementById('reportsContent');
+  if (!tabsEl || !contentEl) return;
+  tabsEl.innerHTML = '';
+  contentEl.innerHTML = '';
+  if (allRecordings.length === 0) {
+    contentEl.innerHTML = '<div class="small">No recordings yet. Finish a recording to see reports.</div>';
+    return;
+  }
+  allRecordings.forEach((rec, idx) => {
+    const btn = document.createElement('button');
+    btn.className = 'tabbtn' + (idx === allRecordings.length-1 ? ' active' : '');
+    // Format start time as HH:MM:SS
+    let label = `Recording ${idx+1}`;
+    if (rec.startedAt) {
+      const d = new Date(rec.startedAt);
+      if (!isNaN(d.getTime())) {
+        const h = String(d.getHours()).padStart(2, '0');
+        const m = String(d.getMinutes()).padStart(2, '0');
+        const s = String(d.getSeconds()).padStart(2, '0');
+        label = `${h}:${m}:${s}`;
+      }
+    }
+    btn.textContent = label;
+    btn.dataset.recId = rec.id;
+    btn.onclick = () => showReportFor(rec.id);
+    tabsEl.appendChild(btn);
+  });
+  // Show latest by default
+  showReportFor(allRecordings[allRecordings.length-1].id);
+}
+
+function showReportFor(recId) {
+  const rec = allRecordings.find(r => r.id === recId);
+  if (!rec) return;
+  // Highlight active subtab
+  document.querySelectorAll('#reportsTabs .tabbtn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.recId === recId);
+  });
+  // Show stats and a box with roll/pitch distribs
+  const stats = computeRecordingStats(rec.rows);
+  const started = new Date(rec.startedAt);
+  let html = `<div class="small">Recording started: ${started.toLocaleString()}<br>Samples: ${rec.rows.length}</div>`;
+  html += stats;
+  // Add box with roll/pitch distribs
+  const plotW = 1200, plotH = 440;
+  html += `<div class="card grow" style="padding:32px 24px;display:flex;flex-direction:column;gap:36px;min-height:${plotH+80}px;margin-top:32px;">
+    <div style='display:grid;grid-template-columns:repeat(2,1fr);gap:32px;width:100%;height:${plotH}px;'>
+      <div style='display:flex;flex-direction:column;align-items:center;justify-content:stretch;height:100%'>
+        <canvas id="report-kde-roll" width="${plotW}" height="${plotH}" style="width:100%;height:100%;max-width:100%;max-height:100%;"></canvas>
+        <div class='tiny' style='text-align:center'>Roll Distribution</div>
+      </div>
+      <div style='display:flex;flex-direction:column;align-items:center;justify-content:stretch;height:100%'>
+        <canvas id="report-kde-pitch" width="${plotW}" height="${plotH}" style="width:100%;height:100%;max-width:100%;max-height:100%;"></canvas>
+        <div class='tiny' style='text-align:center'>Pitch Distribution</div>
+      </div>
+    </div>
+  </div>`;
+  // Add box for roll/pitch freq distribs below
+  html += `<div class="card grow" style="padding:32px 24px;display:flex;flex-direction:column;gap:36px;min-height:${plotH+80}px;margin-top:32px;">
+    <div style='display:grid;grid-template-columns:repeat(2,1fr);gap:32px;width:100%;height:${plotH}px;'>
+      <div style='display:flex;flex-direction:column;align-items:center;justify-content:stretch;height:100%'>
+        <canvas id="report-kde-freq-roll" width="${plotW}" height="${plotH}" style="width:100%;height:100%;max-width:100%;max-height:100%;"></canvas>
+        <div class='tiny' style='text-align:center'>Roll Frequency Distribution</div>
+      </div>
+      <div style='display:flex;flex-direction:column;align-items:center;justify-content:stretch;height:100%'>
+        <canvas id="report-kde-freq-pitch" width="${plotW}" height="${plotH}" style="width:100%;height:100%;max-width:100%;max-height:100%;"></canvas>
+        <div class='tiny' style='text-align:center'>Pitch Frequency Distribution</div>
+      </div>
+    </div>
+  </div>`;
+  document.getElementById('reportsContent').innerHTML = html;
+  // Draw the distribs
+  setTimeout(() => {
+    const rows = rec.rows;
+    // Group by unit
+    const byUnit = {};
+    rows.forEach(r => {
+      if (!byUnit[r.unit]) byUnit[r.unit] = [];
+      byUnit[r.unit].push(r);
+    });
+    const unitIds = Object.keys(byUnit);
+    const colors = (window.COLORS_BASE || ["#4cc9f0","#ffd166","#ef476f","#06d6a0"]);
+    const colorMap = {};
+    unitIds.forEach((id, i) => { colorMap[id] = colors[i % colors.length]; });
+    // Prepare KDE data for all units
+    const kdeData = { roll: {}, pitch: {}, freqRoll: {}, freqPitch: {} };
+    unitIds.forEach(unit => {
+      const arr = byUnit[unit];
+      kdeData.roll[unit] = { data: arr.map(r => r.roll).filter(Number.isFinite) };
+      kdeData.pitch[unit] = { data: arr.map(r => r.pitch).filter(Number.isFinite) };
+      // Freq from roll zero-crossings
+      const rolls = arr.map(r => r.roll).filter(Number.isFinite);
+      const times = arr.map(r => r.t).filter(Number.isFinite);
+      let freqRoll = [];
+      if (rolls.length > 2 && times.length === rolls.length) {
+        let lastSign = Math.sign(rolls[0]);
+        let lastT = times[0];
+        for (let i = 1; i < rolls.length; ++i) {
+          const sign = Math.sign(rolls[i]);
+          if (sign !== 0 && sign !== lastSign) {
+            const dt = (times[i] - lastT) / 1000;
+            if (dt > 0.05 && dt < 10) freqRoll.push(1/dt);
+            lastT = times[i];
+            lastSign = sign;
+          }
+        }
+      }
+      kdeData.freqRoll[unit] = { data: freqRoll };
+      // Freq from pitch zero-crossings
+      const pitchs = arr.map(r => r.pitch).filter(Number.isFinite);
+      let freqPitch = [];
+      if (pitchs.length > 2 && times.length === pitchs.length) {
+        let lastSign = Math.sign(pitchs[0]);
+        let lastT = times[0];
+        for (let i = 1; i < pitchs.length; ++i) {
+          const sign = Math.sign(pitchs[i]);
+          if (sign !== 0 && sign !== lastSign) {
+            const dt = (times[i] - lastT) / 1000;
+            if (dt > 0.05 && dt < 10) freqPitch.push(1/dt);
+            lastT = times[i];
+            lastSign = sign;
+          }
+        }
+      }
+      kdeData.freqPitch[unit] = { data: freqPitch };
+    });
+  drawKDEMulti('report-kde-roll', kdeData.roll, DEG_RANGE.min, DEG_RANGE.max, DEG_RANGE.gridCnt, getKdeFactorAngles(), 'Roll (°)', false, colorMap);
+  drawKDEMulti('report-kde-pitch', kdeData.pitch, DEG_RANGE.min, DEG_RANGE.max, DEG_RANGE.gridCnt, getKdeFactorAngles(), 'Pitch (°)', false, colorMap);
+  // Use logKDE=true and logXAxis=true for frequency plots
+  drawKDEMulti('report-kde-freq-roll', kdeData.freqRoll, FREQ_RANGE.min, FREQ_RANGE.max, FREQ_RANGE.gridCnt, getKdeFactorFreq(), 'Freq (roll)', true, colorMap, true);
+  drawKDEMulti('report-kde-freq-pitch', kdeData.freqPitch, FREQ_RANGE.min, FREQ_RANGE.max, FREQ_RANGE.gridCnt, getKdeFactorFreq(), 'Freq (pitch)', true, colorMap, true);
+  }, 50);
+}
+
+// Compute stats for a recording
+function computeRecordingStats(rows) {
+  if (!rows || !rows.length) return '';
+  // Group by unit
+  const byUnit = {};
+  rows.forEach(r => {
+    if (!byUnit[r.unit]) byUnit[r.unit] = [];
+    byUnit[r.unit].push(r);
+  });
+  let html = '<div class="row">';
+  Object.keys(byUnit).forEach(unit => {
+    const arr = byUnit[unit];
+    const rolls = arr.map(r => r.roll).filter(Number.isFinite);
+    const pitchs = arr.map(r => r.pitch).filter(Number.isFinite);
+    const meanStdRoll = meanStd(rolls);
+    const meanStdPitch = meanStd(pitchs);
+    html += `<div class="card half"><b>${unit}</b><br>`;
+    html += `Roll: mean <b>${meanStdRoll.mean.toFixed(2)}</b>, std <b>${meanStdRoll.std.toFixed(2)}</b><br>`;
+    html += `Pitch: mean <b>${meanStdPitch.mean.toFixed(2)}</b>, std <b>${meanStdPitch.std.toFixed(2)}</b><br>`;
+    html += `</div>`;
+  });
+  html += '</div>';
+  return html;
+}
+
+// Generate KDE distribution plots for roll, pitch, and frequency per unit (same logic as live tool)
+function generateRecordingDistributions(rows, filterUnits) {
+  if (!rows || !rows.length) return '';
+// (plots removed)
+
+// Draw horizontal error bars for mean ± SD (angles) with value labels
+function drawErrorBarMulti(canvasId, kdeData, label, colorMap, minY, maxY) {
+  const el = document.getElementById(canvasId);
+  if (!el) return;
+  const units = Object.keys(kdeData);
+  const means = units.map(u => meanStd(kdeData[u].data).mean);
+  const stds = units.map(u => meanStd(kdeData[u].data).std);
+  const data = units.map((u,i) => ({
+    x: means[i],
+    xMin: means[i] - stds[i],
+    xMax: means[i] + stds[i],
+    y: units.length - i - 1
+  }));
+  new Chart(el.getContext('2d'), {
+    type: 'scatter',
+    data: {
+      datasets: units.map((u,i) => ({
+        label: u,
+        data: [data[i]],
+        backgroundColor: colorMap[u] || '#4cc9f0',
+        borderColor: colorMap[u] || '#4cc9f0',
+        pointRadius: 7,
+        pointHoverRadius: 10,
+        showLine: false,
+        errorBar: stds[i]
+      }))
+    },
+    options: {
+      indexAxis: 'y',
+      responsive: false,
+      plugins: {
+        legend: { display: false, labels: { font: { size: 26 } } },
+        tooltip: {
+          bodyFont: { size: 28 },
+          titleFont: { size: 30 },
+          callbacks: {
+            label: function(context) {
+              const idx = context.dataIndex;
+              return `${units[idx]}: ${means[idx].toFixed(2)} ± ${stds[idx].toFixed(2)}`;
+            }
+          }
+        },
+        annotation: {
+          annotations: data.map((d,i) => ({
+            type: 'line',
+            xMin: d.xMin, xMax: d.xMax, yMin: d.y, yMax: d.y,
+            borderColor: colorMap[units[i]] || '#4cc9f0',
+            borderWidth: 6,
+            label: {
+              display: false
+            }
+          }))
+        }
+      },
+      scales: {
+        x: {
+          min: minY, max: maxY,
+          title: { display: true, text: label, font: { size: 32 } },
+          grid: { drawBorder: true, color: 'rgba(42,56,90,0.3)', lineWidth: 1 },
+          ticks: { stepSize: 20, font: { size: 28 } }
+        },
+        y: {
+          min: -0.5, max: units.length-0.5,
+          display: true,
+          grid: { display: false },
+          ticks: {
+            callback: function(value, idx) { return units[units.length-1-idx]; },
+            stepSize: 1,
+            font: { size: 28 }
+          },
+          title: { display: false, font: { size: 32 } }
+        }
+      }
+    },
+    plugins: [{
+      id: 'customErrorBar',
+      afterDatasetsDraw(chart) {
+        const ctx = chart.ctx;
+        chart.data.datasets.forEach((ds, i) => {
+          const meta = chart.getDatasetMeta(i);
+          if (!meta.data[0]) return;
+          const pt = meta.data[0];
+          const d = data[i];
+          const xMin = chart.scales.x.getPixelForValue(d.xMin);
+          const xMax = chart.scales.x.getPixelForValue(d.xMax);
+          const y = pt.y;
+          ctx.save();
+          ctx.strokeStyle = ds.borderColor;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(xMin, y);
+          ctx.lineTo(xMax, y);
+          ctx.stroke();
+          // Draw value label above error bar
+          ctx.font = 'bold 28px sans-serif';
+          ctx.fillStyle = ds.borderColor;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'bottom';
+          const labelText = `${means[i].toFixed(1)} ± ${stds[i].toFixed(1)}`;
+          const labelX = chart.scales.x.getPixelForValue(d.x);
+          ctx.fillText(labelText, labelX, y - 24);
+          ctx.restore();
+        });
+      }
+    }]
+  });
+}
+  return html;
+}
+
+// Draw multi-unit KDE
+function drawKDEMulti(canvasId, kdeData, min, max, n, factor, label, logKDE, colorMap, logXAxis) {
+  const el = document.getElementById(canvasId);
+  if (!el) return;
+  const xs = linspace(min, max, n);
+  const datasets = Object.keys(kdeData).map((unit, i) => {
+    const data = kdeData[unit].data;
+    if (!data.length) return null;
+    let ys = logKDE ? kdeOnGridLogBack(data, xs, factor) : kdeOnGridLogBackShift(data, xs, factor);
+    const maxY = Math.max(...ys);
+    const normYs = maxY > 0 ? ys.map(y => y / maxY * 100) : ys;
+    return {
+      label: unit,
+      data: normYs,
+      borderColor: colorMap[unit] || '#4cc9f0',
+      backgroundColor: (colorMap[unit] || '#4cc9f0') + '33',
+      pointRadius: 0,
+      fill: false,
+      borderWidth: 2
+    };
+  }).filter(Boolean);
+  new Chart(el.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: xs.map(x => x.toFixed(2)),
+      datasets
+    },
+    options: {
+      responsive: false,
+      plugins: { legend: { display: true, position: 'top' } },
+      elements: { line: { borderWidth: 2 }, point: { radius: 0 } },
+      scales: {
+        x: logXAxis ? {
+          type: 'logarithmic',
+          title: { display: false },
+          min: min,
+          max: max,
+          ticks: {
+            maxTicksLimit: 5,
+            callback: function(value) {
+              // Show only nice log ticks
+              if ([0.01,0.02,0.05,0.1,0.2,0.5,1,2,5].includes(value)) return value;
+              return '';
+            }
+          }
+        } : { title: { display: false }, ticks: { maxTicksLimit: 5 } },
+        y: { title: { display: false }, min: 0, max: 110, display: false }
+      }
+    }
+  });
+}
+
+// Draw multi-unit bar with SD
+function drawBarSDMulti(canvasId, kdeData, label, colorMap) {
+  const el = document.getElementById(canvasId);
+  if (!el) return;
+  const units = Object.keys(kdeData);
+  const means = units.map(u => meanStd(kdeData[u].data).mean);
+  const stds = units.map(u => meanStd(kdeData[u].data).std);
+  // Angle bars: limit to -40..40, others autoscale
+  let minY, maxY, isAngle = false;
+  if (label.toLowerCase().includes('roll') || label.toLowerCase().includes('pitch')) {
+    minY = -40; maxY = 40; isAngle = true;
+  } else {
+    minY = Math.min(...means.map((m,i)=>m-2*stds[i]));
+    maxY = Math.max(...means.map((m,i)=>m+2*stds[i]));
+  }
+  new Chart(el.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: units,
+      datasets: [{
+        label: label,
+        data: means,
+        backgroundColor: units.map(u => colorMap[u] || '#4cc9f0'),
+        borderColor: units.map(u => colorMap[u] || '#4cc9f0'),
+        borderWidth: 2
+      }]
+    },
+    options: {
+      responsive: false,
+      plugins: { legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              const idx = context.dataIndex;
+              return `${units[idx]}: ${means[idx].toFixed(2)} ± ${stds[idx].toFixed(2)}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { display: true },
+        y: {
+          display: true,
+          min: minY,
+          max: maxY,
+          grid: {
+            drawBorder: true,
+            color: function(ctx) {
+              // Thicker zero line
+              if (ctx.tick && ctx.tick.value === 0) return '#fff';
+              return 'rgba(42,56,90,0.3)';
+            },
+            lineWidth: function(ctx) {
+              return (ctx.tick && ctx.tick.value === 0) ? 3 : 1;
+            },
+            z: 1
+          },
+          // Keep zero in the center for angle bars
+          offset: false,
+          ticks: isAngle ? { stepSize: 20 } : undefined
+        }
+      }
+    }
+  });
+}
+
+// Draw bar with SD
+function drawBarSD(canvasId, data, label) {
+  const el = document.getElementById(canvasId);
+  if (!el || !data.length) return;
+  const {mean, std} = meanStd(data);
+  new Chart(el.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: [label],
+      datasets: [{
+        label: label,
+        data: [mean],
+        backgroundColor: '#4cc9f0',
+        borderColor: '#2a385a',
+        borderWidth: 2,
+        errorBar: [std]
+      }]
+    },
+    options: {
+      responsive: false,
+      plugins: { legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(context) {
+              return `${label}: ${mean.toFixed(2)} ± ${std.toFixed(2)}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { display: false },
+        y: { display: true, min: Math.max(0, mean-2*std), max: mean+2*std }
+      }
+    }
+  });
+}
+
+// Draw KDE using same logic as live tool
+function drawKDE(canvasId, data, min, max, n, factor, label, logKDE) {
+  const el = document.getElementById(canvasId);
+  if (!el || !data.length) return;
+  const xs = linspace(min, max, n);
+  let ys;
+  if (logKDE) {
+    ys = kdeOnGridLogBack(data, xs, factor);
+  } else {
+    // Use kdeOnGridLogBackShift for roll/pitch (mirrors live tool)
+    ys = kdeOnGridLogBackShift(data, xs, factor);
+  }
+  // Normalize for display
+  const maxY = Math.max(...ys);
+  const normYs = maxY > 0 ? ys.map(y => y / maxY * 100) : ys;
+  new Chart(el.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: xs.map(x => x.toFixed(1)),
+      datasets: [{ label, data: normYs, borderColor: '#4cc9f0', backgroundColor: '#4cc9f033', pointRadius: 0, fill: true }]
+    },
+    options: {
+      responsive: false,
+      plugins: { legend: { display: false } },
+      elements: { line: { borderWidth: 2 }, point: { radius: 0 } },
+      scales: {
+        x: { title: { display: false }, ticks: { maxTicksLimit: 5 } },
+        y: { title: { display: false }, min: 0, max: 110, display: false }
+      }
+    }
+  });
+}
+
 // ---------- Tabs ----------
 function selectTab(name){
-  ['plot','stats','settings'].forEach(t=>document.getElementById('tab-'+t).classList.add('hidden'));
-  document.getElementById('tab-'+name).classList.remove('hidden');
+  ['plot','map','stats','reports','settings'].forEach(t=>{
+    const el = document.getElementById('tab-'+t);
+    if (el) el.classList.add('hidden');
+  });
+  const showEl = document.getElementById('tab-'+name);
+  if (showEl) showEl.classList.remove('hidden');
   document.querySelectorAll('.tabbtn').forEach(x=>x.classList.toggle('active',x.dataset.tab===name));
   if(name==='plot'){
     try{ distCharts.roll.resize();  distCharts.roll.update('none'); }catch{}
     try{ distCharts.pitch.resize(); distCharts.pitch.update('none'); }catch{}
     try{ distCharts.freq.resize();  distCharts.freq.update('none'); }catch{}
+  }
+  if(name==='map' && map){
+    setTimeout(()=>{ map.invalidateSize(); }, 100);
   }
 }
 document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>selectTab(b.dataset.tab)));
@@ -1286,13 +1744,13 @@ document.getElementById('btnUnlock').addEventListener('click',async ()=>{
 
     // init per-athlete distribution charts
     (function initDists(){
-      const rctx=document.getElementById('dist-roll').getContext('2d');
-      const pctx=document.getElementById('dist-pitch').getContext('2d');
-      const fctx=document.getElementById('dist-freq').getContext('2d');
-      distCharts.roll = makeDensityChartMulti(rctx,'Roll', {min:DEG_RANGE.min,max:DEG_RANGE.max,step:DEG_RANGE.step,type:'linear'});
-      distCharts.pitch= makeDensityChartMulti(pctx,'Pitch',{min:DEG_RANGE.min,max:DEG_RANGE.max,step:DEG_RANGE.step,type:'linear'});
-      distCharts.freq = makeDensityChartMulti(fctx,'Freq',  {min:FREQ_RANGE.min,max:FREQ_RANGE.max,step:FREQ_RANGE.step,type:'linear'});
-      distCharts.xsDeg=null; distCharts.xsHz=null;
+  const rctx=document.getElementById('dist-roll').getContext('2d');
+  const pctx=document.getElementById('dist-pitch').getContext('2d');
+  const fctx=document.getElementById('dist-freq').getContext('2d');
+  distCharts.roll = makeDensityChartMulti(rctx,'Roll', {min:DEG_RANGE.min,max:DEG_RANGE.max,step:DEG_RANGE.step,type:'linear'});
+  distCharts.pitch= makeDensityChartMulti(pctx,'Pitch',{min:DEG_RANGE.min,max:DEG_RANGE.max,step:DEG_RANGE.step,type:'linear'});
+  distCharts.freq = makeDensityChartMulti(fctx,'Freq',  {min:FREQ_RANGE.min,max:FREQ_RANGE.max,step:FREQ_RANGE.step,type:'logarithmic'});
+  distCharts.xsDeg=null; distCharts.xsHz=null;
     })();
 
     setStatus('unlocked — not connected',false);
@@ -1344,7 +1802,6 @@ function connect(){
         log('Received marks update from replay.');
         return;
       }
-      // ...existing code...
       let unit=d.unit_id; if(!unit){const m=topic.split('/'); if(m.length>=3) unit=m[1];}
       if(!unit) unit='unknown';
       if(globalT0===null) globalT0=t;
@@ -1370,7 +1827,6 @@ function connect(){
         setStartLine(d.start_pt1_lat, d.start_pt1_lon, d.start_pt2_lat, d.start_pt2_lon);
       }
 
-      // ...existing code...
       const lat = coerceNum(d.lat), lon = coerceNum(d.lon);
       const hasFix = validLatLon(lat, lon);
       if(hasFix) {
