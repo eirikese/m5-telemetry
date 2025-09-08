@@ -4,37 +4,36 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
 <title>TrollSports Live v1.5.9</title>
-<meta name="theme-color" content="#0b1220"/>
+<meta name="theme-color" content="#ffffff"/>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
 <style>
-  :root{--bg:#0b1220;--card:#0f1a31;--muted:#92a1bd;--text:#e6eefc;--accent:#4cc9f0;--border:#223050;--rec:#ff4d4d}
-
   /* Spacing system */
   :root{
     --gap: clamp(10px, 1.8vw, 14px);
     --pad: clamp(10px, 1.8vw, 14px);
     --card-pad: clamp(12px, 2vw, 16px);
 
-    /* theme tokens (dark default) */
-    --theme-color:#0b1220;
-    --topbar1:#0a1120;
-    --topbar2:#0c1526;
-    --btn:#152341;
-    --btn-active:#152341;
-    --input:#0e1730;
-    --chart-text:#dfe7ff;
-    --chart-grid:#2a385a;
-    --leaflet-bg:#0b1220;
+    /* theme tokens */
+    --bg:#f7f9fc;
+    --card:#ffffff; 
+    --muted:#4e5d79; 
+    --text:#0b1220; 
+    --accent:#1e66f5; 
+    --border:#d6deeb;
+    --rec:#ff4d4d;
+    --theme-color:#ffffff;
+    --topbar1:#ffffff;
+    --topbar2:#f6f7fb;
+    --btn:#f2f6ff;
+    --btn-active:#e6effe;
+    --input:#f8fbff;
+    --chart-text:#000000;
+    --chart-grid:#e0e0e0;
+    --leaflet-bg:#e6eefc;
   }
-  .theme-light{
-    --bg:#f7f9fc; --card:#ffffff; --muted:#4e5d79; --text:#0b1220; --accent:#1e66f5; --border:#d6deeb;
-    --theme-color:#ffffff; --topbar1:#ffffff; --topbar2:#f6f7fb; --btn:#f2f6ff; --btn-active:#e6effe; --input:#f8fbff;
-    --chart-text:#22324f; --chart-grid:#c6d3ea; --leaflet-bg:#e6eefc;
-  }
-
   *{box-sizing:border-box} html,body{height:100%}
   body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Arial,sans-serif;padding-bottom:env(safe-area-inset-bottom)}
   .topbar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:10px;padding:calc(8px + env(safe-area-inset-top)) var(--pad) 8px;background:linear-gradient(180deg,var(--topbar1),var(--topbar2));border-bottom:1px solid var(--border)}
@@ -51,9 +50,10 @@
   .num{font-weight:700;font-size:clamp(22px,5.8vw,34px);line-height:1.15}
   .btns{display:flex;flex-wrap:wrap;gap: calc(var(--gap) - 2px); margin-top: var(--gap)} 
   button{padding:10px 14px;border-radius:10px;border:1px solid var(--border);background:var(--btn);color:var(--text);cursor:pointer}
-  input,select{width:100%;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--input);color:var(--text)}
-  label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap: var(--gap)} .hidden{display:none}.ok{color:#16c26e}.bad{color:#ff6b6b}
+  input,select{width:auto;min-width:0;padding:10px 12px;border-radius:10px;border:1px solid var(--border);background:var(--input);color:var(--text);max-width:100%;overflow-wrap:break-word;}
+  input[type="number"],input[type="checkbox"]{width:auto;min-width:0;}
+  label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;max-width:100%;overflow-wrap:break-word;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(450px, 1fr));gap: var(--gap);} .hidden{display:none}.ok{color:#16c26e}.bad{color:#ff6b6b}
   .log{font-size:12px;background:var(--input);color:var(--text);padding:10px;border-radius:10px;max-height:200px;overflow:auto;border:1px dashed var(--border)}
   .plot{display:flex;align-items:stretch;justify-content:stretch;position:relative;height:45vh;min-height:280px;max-height:480px;width:100%}
   .plot canvas{flex:1 1 auto;width:100%!important;height:100%!important;display:block;max-height:100%;}
@@ -61,7 +61,7 @@
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,77,77,.85)}70%{box-shadow:0 0 0 12px rgba(255,77,77,0)}100%{box-shadow:0 0 0 0 rgba(255,77,77,0)}}
   .blink{animation:pulse 1s infinite}
   .range-row{display:grid;grid-template-columns:1fr auto;gap: var(--gap);align-items:center} input[type="range"]{width:100%;accent-color:var(--accent)}
-  .unitNow,.unitStats{border-radius:10px;padding:10px;border:1px solid var(--border);background:var(--input)}
+  .unitNow{border-radius:10px;padding:10px;border:1px solid var(--border);background:var(--input)}
   .unitTag{display:inline-block;padding:2px 8px;border-radius:999px;font-weight:700;margin-bottom:6px;color:#000}
   .uNums .num{color:var(--ucolor)}
   #map{height:45vh;max-height:590px;min-height:220px;border-radius:12px;overflow:hidden;display:flex;width:100%}
@@ -83,8 +83,7 @@
     padding-bottom: calc(var(--gap) + 6px);
   }
   
-  /* Make Stats numbers use the athlete color like Now */
-  .unitStats .num { color: var(--ucolor); }
+
 
   /* Make map in Map tab large */
   #tab-map #map {
@@ -106,14 +105,13 @@
   <div class="topbar">
     <div class="app-title">TrollSports Live</div><div class="spacer"></div>
     <div class="ver">v1.5.9</div>
-    <div class="tabs">
-  <button class="tabbtn active" data-tab="plot">Plot</button>
-  <button class="tabbtn" data-tab="map">Map</button>
-  <button class="tabbtn" data-tab="stats">Stats</button>
-  <button class="tabbtn" data-tab="reports">Reports</button>
-  <button class="tabbtn" data-tab="settings">Settings</button>
+    <div class="tabs hidden" id="maintabs">
+      <button class="tabbtn active" data-tab="plot">Plot</button>
+      <button class="tabbtn" data-tab="map">Map</button>
+      <button class="tabbtn" data-tab="reports">Reports</button>
+      <button class="tabbtn" data-tab="settings">Settings</button>
     </div>
-    <button id="btnRecord" style="margin-left:16px;">Start Recording</button>
+    <button id="btnRecord" class="hidden" style="margin-left:16px;">Start Recording</button>
   </div>
 
   <!-- Gate -->
@@ -138,9 +136,9 @@
         </div>
       </div>
       <div class="row">
-        <div class="card grow">
+        <div class="card half">
           <div style="font-weight:700;margin-bottom:8px;">IMU Timeseries</div>
-          <div class="plot"><canvas id="chart_ts"></canvas></div>
+          <div class="plot" style="height:40vh;min-height:260px;"><canvas id="chart_ts"></canvas></div>
         </div>
         <div class="card half">
           <div style="font-weight:700;margin-bottom:8px;">SOG Timeseries</div>
@@ -186,9 +184,6 @@
     </section>
 
 
-    <!-- STATS TAB -->
-    <section id="tab-stats" class="hidden"><div class="row" id="statsUnits" style="width:100%"></div></section>
-
     <!-- REPORTS TAB -->
     <section id="tab-reports" class="hidden">
       <div class="row">
@@ -200,27 +195,9 @@
       </div>
     </section>
 
-    <!-- SETTINGS TAB (with Appearance + Race Setup) -->
+    <!-- SETTINGS TAB -->
     <section id="tab-settings" class="hidden">
       <div class="row">
-        <!-- Appearance -->
-        <div class="card half">
-          <div style="font-weight:700;margin-bottom:8px;">Appearance</div>
-          <div class="grid" style="grid-template-columns:1fr">
-            <div>
-              <label for="themeSel">Theme</label>
-              <select id="themeSel">
-                <option value="auto">Auto (match system)</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </select>
-              <div class="tiny" style="margin-top:6px;">
-                Athlete colors are slightly darkened in Light mode for contrast. Axis ticks & map base switch automatically.
-              </div>
-            </div>
-          </div>
-        </div>
-
         <!-- Connection -->
         <div class="card half">
           <div style="font-weight:700;margin-bottom:8px;">Connection</div>
@@ -255,7 +232,7 @@
               </div>
             </div>
             <div style="grid-column:1/-1;">
-              <label>Analysis Window (seconds) — stats & peak detection</label>
+              <label>Analysis Window (seconds) — peak detection</label>
               <div class="range-row">
                 <input id="winSecRange" type="range" min="5" max="600" step="5" value="30"/>
                 <input id="winSec" type="number" min="5" max="600" step="5" value="30" style="width:90px"/>
@@ -291,9 +268,21 @@
           </div>
         </div>
 
-        <!-- Units -->
+        <!-- Units Configuration -->
         <div class="card half">
-          <div style="font-weight:700;margin-bottom:8px;">Units</div>
+          <div style="font-weight:700;margin-bottom:8px;">Athlete Configuration</div>
+          <div id="unitsConfig" class="grid" style="grid-template-columns:1fr;gap:12px">
+            <!-- Dynamic content here -->
+          </div>
+          <div class="btns" style="margin-top:12px;">
+            <button id="saveUnitConfig">Save Configuration</button>
+          </div>
+          <div id="configStatus" class="small" style="margin-top:8px;"></div>
+        </div>
+
+        <!-- Units Visibility -->
+        <div class="card half">
+          <div style="font-weight:700;margin-bottom:8px;">Units Visibility</div>
           <div id="unitsList" class="grid" style="grid-template-columns:1fr;gap:8px"></div>
         </div>
 
@@ -355,51 +344,17 @@ function darkenHex(hex, amt=0.22){const hsl=rgbToHsl(hexToRgb(hex)); const l=Mat
 function cssVar(name, fallback='#ffaa00'){return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;}
 
 // ---------- chart defaults ----------
-Chart.defaults.color='#dfe7ff'; Chart.defaults.borderColor='#2a385a';
+Chart.defaults.color='#000000'; Chart.defaults.borderColor='#e0e0e0';
 
-// ---------- theme handling ----------
-const THEME_KEY = 'ts_theme';
-let _mqLight = window.matchMedia('(prefers-color-scheme: light)');
-function currentThemeChoice(){ return localStorage.getItem(THEME_KEY) || 'auto'; }
-
-function applyTheme(choice){
-  let mode = choice==='auto' ? (_mqLight.matches?'light':'dark') : choice;
-  document.documentElement.classList.toggle('theme-light', mode==='light');
-
-  const cs = getComputedStyle(document.documentElement);
-  const themeColor = cs.getPropertyValue('--theme-color').trim() || '#ffffff';
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if(meta) meta.setAttribute('content', themeColor);
-
-  const chartText = cs.getPropertyValue('--chart-text').trim();
-  const chartGrid = cs.getPropertyValue('--chart-grid').trim();
+function applyChartDefaults() {
+  const chartText = cssVar('--chart-text');
+  const chartGrid = cssVar('--chart-grid');
   Chart.defaults.color = chartText;
   Chart.defaults.borderColor = chartGrid;
 
-  const retick = (chart)=>{
-    if(!chart) return;
-    if(chart.options?.scales?.x){
-      chart.options.scales.x.ticks ||= {};
-      chart.options.scales.x.grid ||= {};
-      chart.options.scales.y ||= {};
-      chart.options.scales.y.ticks ||= {};
-      chart.options.scales.y.grid ||= {};
-      chart.options.scales.x.ticks.color = chartText;
-      chart.options.scales.y.ticks.color = chartText;
-      chart.options.scales.x.grid.color = chartGrid;
-      chart.options.scales.y.grid.color = chartGrid;
-    }
-    chart.update('none');
-  };
-
   // Map tiles + credit
-  const isLight = (mode==='light');
-  const url = isLight
-    ? 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png'
-    : 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
-  const credit = isLight
-    ? 'Basemap © OpenStreetMap, © CARTO — Positron'
-    : 'Basemap © OpenStreetMap, © CARTO — Dark Matter';
+  const url = 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png';
+  const credit = 'Basemap © OpenStreetMap, © CARTO — Positron';
 
   if(map){
     if(window._tileLayer) map.removeLayer(window._tileLayer);
@@ -417,29 +372,6 @@ function applyTheme(choice){
     }
   }
   const mc = $('mapCredit'); if(mc) mc.textContent = credit;
-
-  // Re-tint athlete assets (darker in light mode)
-  refreshUnitStylesForTheme(mode);
-
-  // Apply tick/grid colors to all charts
-  retick(chartTS);
-  retick(chartSOG);
-  if(distCharts.roll)  retick(distCharts.roll);
-  if(distCharts.pitch) retick(distCharts.pitch);
-  if(distCharts.freq)  retick(distCharts.freq);
-}
-
-function initThemeUI(){
-  const sel = $('themeSel');
-  if(!sel) return;
-  sel.value = currentThemeChoice();
-  sel.addEventListener('change', e=>{
-    localStorage.setItem(THEME_KEY, e.target.value);
-    applyTheme(e.target.value);
-  });
-  _mqLight.addEventListener?.('change', ()=>{
-    if(currentThemeChoice()==='auto') applyTheme('auto');
-  });
 }
 
 // ---------- state ----------
@@ -458,9 +390,181 @@ let startLineLayer=null;
 let startLineMarkers={a:null,b:null};
 let placingStartPhase=0; // 0 idle, 1 awaiting A, 2 awaiting B
 
-// Athlete colors (fixed, not user-editable)
-let COLORS_BASE=["#4cc9f0","#ffd166","#ef476f","#06d6a0"];
-function themedColor(hex){ const mode = document.documentElement.classList.contains('theme-light')?'light':'dark'; return (mode==='light') ? darkenHex(hex,0.22) : hex; }
+// Athlete colors and configurations
+const COLORS_PALETTE = [
+  { name: 'Blue', value: '#4cc9f0' },
+  { name: 'Gold', value: '#ffd166' },
+  { name: 'Red', value: '#ef476f' },
+  { name: 'Emerald', value: '#06d6a0' },
+  { name: 'Purple', value: '#9b5de5' },
+  { name: 'Orange', value: '#ff9f1c' },
+  { name: 'Teal', value: '#00b4d8' },
+  { name: 'Pink', value: '#ff70a6' }
+];
+
+let COLORS_BASE = COLORS_PALETTE.slice(0, 4).map(c => c.value); // Default first 4 colors
+const UNIT_CONFIG_KEY = 'unitColors';
+
+// Load saved unit configurations
+function loadUnitConfig() {
+  try {
+    const saved = localStorage.getItem(UNIT_CONFIG_KEY);
+    return saved ? JSON.parse(saved) : {};
+  } catch(e) {
+    console.warn('Failed to load unit config:', e);
+    return {};
+  }
+}
+
+// Save unit configurations
+function saveUnitConfig() {
+  const config = {};
+  const configRows = document.querySelectorAll('.unit-config-row');
+  configRows.forEach(row => {
+    const unitId = row.dataset.unit;
+    const customName = row.querySelector('.unit-custom-name').value;
+    const color = row.querySelector('.unit-color').value;
+    if (unitId) {
+      config[unitId] = { customName, name: customName, color };
+    }
+  });
+  
+  try {
+    localStorage.setItem(UNIT_CONFIG_KEY, JSON.stringify(config));
+    // Update any visible reports with new colors
+    const activeReportBtn = document.querySelector('#reportsTabs .tabbtn.active');
+    if (activeReportBtn) {
+      showReportFor(activeReportBtn.dataset.recId);
+    }
+    const status = document.getElementById('configStatus');
+    status.textContent = 'Configuration saved successfully';
+    status.style.color = '#16c26e';
+    setTimeout(() => status.textContent = '', 3000);
+    return true;
+  } catch(e) {
+    console.warn('Failed to save unit config:', e);
+    const status = document.getElementById('configStatus');
+    status.textContent = 'Failed to save configuration';
+    status.style.color = '#ff6b6b';
+    return false;
+  }
+}
+
+// Update unit config row or create new one
+function updateUnitConfigRow(unitId) {
+  const container = document.getElementById('unitsConfig');
+  if (!container) return;
+
+  let row = container.querySelector(`.unit-config-row[data-unit="${unitId}"]`);
+  const config = loadUnitConfig();
+  const savedConfig = config[unitId] || {};
+  
+  if (!row) {
+    row = document.createElement('div');
+    row.className = 'unit-config-row';
+    row.dataset.unit = unitId;
+    row.style.display = 'grid';
+    row.style.gridTemplateColumns = 'minmax(80px, 1fr) minmax(120px, 1.5fr) minmax(100px, 1fr)';
+    row.style.gap = '8px';
+    row.style.alignItems = 'center';
+    
+    // Original name label
+    const origLabel = document.createElement('div');
+    origLabel.className = 'small';
+    origLabel.textContent = unitId;
+    row.appendChild(origLabel);
+
+    // Custom name input
+    const nameInput = document.createElement('input');
+    nameInput.className = 'unit-custom-name';
+    nameInput.type = 'text';
+    nameInput.placeholder = 'Custom name';
+    nameInput.value = savedConfig.customName || '';
+    row.appendChild(nameInput);
+
+    // Color select
+    const colorSelect = document.createElement('select');
+    colorSelect.className = 'unit-color';
+    COLORS_PALETTE.forEach(color => {
+      const opt = document.createElement('option');
+      opt.value = color.value;
+      opt.textContent = color.name;
+      if (color.value === (savedConfig.color || COLORS_BASE[discoveredOrder.indexOf(unitId) % COLORS_BASE.length])) {
+        opt.selected = true;
+      }
+      colorSelect.appendChild(opt);
+    });
+    row.appendChild(colorSelect);
+
+    container.appendChild(row);
+  }
+}
+
+// Apply configuration to a unit
+function applyUnitConfig(unitId) {
+  const config = loadUnitConfig();
+  const savedConfig = config[unitId];
+  if (savedConfig) {
+    const unit = units[unitId];
+    if (unit) {
+      const displayName = savedConfig.customName || unitId;
+      unit.baseColor = savedConfig.color;
+      unit.customName = displayName;
+      // Update any displayed elements
+      const tagNow = document.getElementById(`tag-${unitId}`);
+      const tagSet = document.getElementById(`tag-${unitId}-settings`);
+      if (tagNow) tagNow.textContent = displayName;
+      if (tagSet) tagSet.textContent = unit.customName;
+
+      // Update chart labels
+      if (chartTS) {
+        if (unit.idxRoll != null) chartTS.data.datasets[unit.idxRoll].label = `${unit.customName} roll`;
+        if (unit.idxPitch != null) chartTS.data.datasets[unit.idxPitch].label = `${unit.customName} pitch`;
+        if (unit.idxRollPk != null) chartTS.data.datasets[unit.idxRollPk].label = `${unit.customName} roll peaks`;
+        if (unit.idxPitchPk != null) chartTS.data.datasets[unit.idxPitchPk].label = `${unit.customName} pitch peaks`;
+        chartTS.update('none');
+      }
+      
+      // Update SOG chart labels
+      if (chartSOG) {
+        if (unit.idxSOG != null) chartSOG.data.datasets[unit.idxSOG].label = `${unit.customName} SOG`;
+        if (unit.idxVMG != null) chartSOG.data.datasets[unit.idxVMG].label = `${unit.customName} VMG`;
+        chartSOG.update('none');
+      }
+
+      // Update distribution chart labels
+      if (distCharts.roll) {
+        const rI = distIdx.roll[unitId];
+        if (rI != null) {
+          distCharts.roll.data.datasets[rI].label = unit.customName;
+          distCharts.roll.update('none');
+        }
+      }
+      if (distCharts.pitch) {
+        const pI = distIdx.pitch[unitId];
+        if (pI != null) {
+          distCharts.pitch.data.datasets[pI].label = unit.customName;
+          distCharts.pitch.update('none');
+        }
+      }
+      if (distCharts.freq) {
+        const fI = distIdx.freq[unitId];
+        if (fI != null) {
+          distCharts.freq.data.datasets[fI].label = unit.customName;
+          distCharts.freq.update('none');
+        }
+      }
+
+      // Update sync selector
+      const syncOpt = syncRefSelect.querySelector(`option[value="${unitId}"]`);
+      if (syncOpt) syncOpt.textContent = unit.customName;
+
+      refreshUnitStylesForTheme();
+    }
+  }
+}
+
+function themedColor(hex){ return hex; }
 
 const units={}, discoveredOrder=[];
 const MAX_KEEP_SEC=600, FREQ_HOLD_MS=2000, GNSS_KEEP=4000;
@@ -494,7 +598,7 @@ function getRefUnit(){ if(syncRefMode!=='auto' && units[syncRefMode]) return syn
 let recActive=false, recRows=[], recStartedAt=null;
 
 // DOM refs
-const nowUnits=$('nowUnits'), statsUnits=$('statsUnits'), unitsList=$('unitsList');
+const nowUnits=$('nowUnits'), unitsList=$('unitsList');
 
 // ---------- chart builders ----------
 function makeTimeseries(){
@@ -657,17 +761,23 @@ function makeSOGChart(){ return makeSOG(); }
 // ---------- unit management ----------
 function ensureUnit(unitId){
   if(units[unitId]) return units[unitId];
-  // Only allow up to four athletes
-  if (discoveredOrder.length >= 4 && !units[unitId]) {
-    log('Maximum of four athletes supported. Additional units will not be shown.');
+  // Only allow up to eight athletes
+  if (discoveredOrder.length >= 8 && !units[unitId]) {
+    log('Maximum of eight athletes supported. Additional units will not be shown.');
     return null;
   }
+  
   const idx = discoveredOrder.length;
-  const baseColor = COLORS_BASE[idx];
-  const customName = unitId;
-  const color = themedColor(baseColor); discoveredOrder.push(unitId);
+  const config = loadUnitConfig()[unitId];
+  const baseColor = config ? config.color : COLORS_BASE[idx % COLORS_BASE.length];
+  const customName = config ? config.customName || unitId : unitId;
+  const color = baseColor; discoveredOrder.push(unitId);
+  
+  // Create or update configuration row
+  updateUnitConfigRow(unitId);
   const opt = document.createElement('option'); opt.value = unitId; opt.textContent = customName; syncRefSelect.appendChild(opt);
 
+  // Create base unit object
   const u = units[unitId] = {baseColor, color, customName, originalName: unitId,
     visible: true,
     times: [], roll: [], pitch: [],
@@ -683,23 +793,23 @@ function ensureUnit(unitId){
   };
 
   // timeseries datasets
-  const rollDs = {label: `${unitId} roll`, data: u.seriesRoll, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, spanGaps: true};
-  const pitchDs = {label: `${unitId} pitch`, data: u.seriesPitch, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, borderDash: [6,4], spanGaps: true};
+  const rollDs = {label: `${customName} roll`, data: u.seriesRoll, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, spanGaps: true};
+  const pitchDs = {label: `${customName} pitch`, data: u.seriesPitch, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, borderDash: [6,4], spanGaps: true};
   chartTS.data.datasets.push(rollDs); u.idxRoll = chartTS.data.datasets.length - 1;
   chartTS.data.datasets.push(pitchDs); u.idxPitch = chartTS.data.datasets.length - 1;
 
   // peak markers
-  const rollPk = {label: `${unitId} roll peaks`, type: 'scatter', data: u.seriesRollPk, parsing: false, backgroundColor: color, borderColor: color, pointRadius: 4, pointStyle: 'circle', showLine: false};
-  const pitchPk = {label: `${unitId} pitch peaks`, type: 'scatter', data: u.seriesPitchPk, parsing: false, backgroundColor: color, borderColor: color, pointRadius: 4, pointStyle: 'circle', showLine: false};
+  const rollPk = {label: `${customName} roll peaks`, type: 'scatter', data: u.seriesRollPk, parsing: false, backgroundColor: color, borderColor: color, pointRadius: 4, pointStyle: 'circle', showLine: false};
+  const pitchPk = {label: `${customName} pitch peaks`, type: 'scatter', data: u.seriesPitchPk, parsing: false, backgroundColor: color, borderColor: color, pointRadius: 4, pointStyle: 'circle', showLine: false};
   chartTS.data.datasets.push(rollPk); u.idxRollPk = chartTS.data.datasets.length - 1;
   chartTS.data.datasets.push(pitchPk); u.idxPitchPk = chartTS.data.datasets.length - 1;
 
   // SOG dataset
-  const sogDs = {label: `${unitId} SOG`, data: u.sogSeries, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, spanGaps: true};
+  const sogDs = {label: `${customName} SOG`, data: u.sogSeries, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, spanGaps: true};
   chartSOG.data.datasets.push(sogDs); u.idxSOG = chartSOG.data.datasets.length - 1;
 
   // VMG dataset (dashed)
-  const vmgDs = {label: `${unitId} VMG`, data: u.vmgSeries, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, spanGaps: true, borderDash: [4,4]};
+  const vmgDs = {label: `${customName} VMG`, data: u.vmgSeries, parsing: false, borderColor: color, backgroundColor: 'transparent', pointRadius: 0, borderWidth: 2, tension: .15, spanGaps: true, borderDash: [4,4]};
   chartSOG.data.datasets.push(vmgDs); u.idxVMG = chartSOG.data.datasets.length - 1;
 
   // map layers
@@ -709,7 +819,7 @@ function ensureUnit(unitId){
 
   // Now card (+ distances)
   const nowCard = document.createElement('div'); nowCard.className = 'unitNow uNums'; nowCard.style.setProperty('--ucolor', color);
-  nowCard.innerHTML = `<div class="unitTag" id="tag-${unitId}" style="background:${color}">${unitId}</div>
+  nowCard.innerHTML = `<div class="unitTag" id="tag-${unitId}" style="background:${color}">${customName}</div>
     <div class="grid" style="grid-template-columns:1fr 1fr">
       <div><div class="small">Roll</div><div class="num" id="now-roll-${unitId}">–</div></div>
       <div><div class="small">Pitch</div><div class="num" id="now-pitch-${unitId}">–</div></div>
@@ -741,12 +851,7 @@ function ensureUnit(unitId){
       <div><div class="small">Freq Pitch (Hz)</div><div class="num" id="st-pitch-hz-${unitId}">–</div></div>
       <div style="grid-column:1/-1"><div class="small">Mean SOG (kt)</div><div class="num" id="st-sog-mean-${unitId}">–</div></div>
     </div>`;
-  statsUnits.appendChild(statsCol);
-  u.statsElems = { rMean: $(`st-roll-mean-${unitId}`), rStd: $(`st-roll-std-${unitId}`),
-                 pMean: $(`st-pitch-mean-${unitId}`), pStd: $(`st-pitch-std-${unitId}`),
-                 rPk: $(`st-roll-pk-${unitId}`), pPk: $(`st-pitch-pk-${unitId}`),
-                 rHz: $(`st-roll-hz-${unitId}`), pHz: $(`st-pitch-hz-${unitId}`),
-                 sogMean: $(`st-sog-mean-${unitId}`) };
+
 
   // settings checkbox
   const row = document.createElement('div');
@@ -773,11 +878,11 @@ function ensureUnit(unitId){
   return u;
 }
 
-// apply themed colors to all unit visuals
-function refreshUnitStylesForTheme(mode){
+// apply colors to all unit visuals
+function refreshUnitStylesForTheme(){
   for(const id of Object.keys(units)){
     const u=units[id];
-    const c = (mode==='light') ? darkenHex(u.baseColor,0.22) : u.baseColor;
+    const c = u.baseColor;
     u.color = c;
     chartTS.data.datasets[u.idxRoll].borderColor = c;
     chartTS.data.datasets[u.idxPitch].borderColor = c;
@@ -806,7 +911,7 @@ viewRange.addEventListener('input',e=>applyViewWindow(e.target.value));
 viewNum.addEventListener('change',e=>applyViewWindow(e.target.value));
 
 const winRange=$('winSecRange'), winNum=$('winSec');
-function applyWindow(val){ const v=clamp(parseInt(val||'30',10),5,600); winRange.value=v; winNum.value=v; recomputePeaksAndStatsAll(); chartTS.update('none'); chartSOG.update('none'); }
+function applyWindow(val){ const v=clamp(parseInt(val||'30',10),5,600); winRange.value=v; winNum.value=v; recomputePeaks(); chartTS.update('none'); chartSOG.update('none'); }
 winRange.addEventListener('input',e=>applyWindow(e.target.value));
 winNum.addEventListener('change',e=>applyWindow(e.target.value));
 
@@ -937,7 +1042,7 @@ function updateUnifiedDistributions(){
   distCharts.pitch.update('none');
   distCharts.freq.update('none');
 }
-function recomputePeaksAndStatsAll(){
+function recomputePeaks(){
   const winSec=parseFloat(winNum.value||'30'), minDist=parseFloat($('minDist').value||'300'), minProm=parseFloat($('minProm').value||'5.0');
 
   for(const id of Object.keys(units)){
@@ -963,16 +1068,10 @@ function recomputePeaksAndStatsAll(){
     if(u.statsElems.rStd)  u.statsElems.rStd.textContent =isFinite(rs.std)? rs.std.toFixed(2) :'–';
     if(u.statsElems.pMean) u.statsElems.pMean.textContent=isFinite(ps.mean)?ps.mean.toFixed(2):'–';
     if(u.statsElems.pStd)  u.statsElems.pStd.textContent =isFinite(ps.std)? ps.std.toFixed(2) :'–';
-    if(u.statsElems.rPk)   u.statsElems.rPk.textContent  =rPeaks.length;
-    if(u.statsElems.pPk)   u.statsElems.pPk.textContent  =pPeaks.length;
-    if(u.statsElems.rHz)   u.statsElems.rHz.textContent  =isFinite(fShowR)?fShowR.toFixed(2):'–';
-    if(u.statsElems.pHz)   u.statsElems.pHz.textContent  =isFinite(fShowP)?fShowP.toFixed(2):'–';
-
     // Mean SOG (window)
     let sIdx=0; while(sIdx<u.sogTimes.length && u.sogTimes[sIdx]<startMs) sIdx++;
     const sogWin=u.sogVals.slice(sIdx);
     const sogStats=meanStd(sogWin);
-    if(u.statsElems.sogMean) u.statsElems.sogMean.textContent=isFinite(sogStats.mean)?sogStats.mean.toFixed(2):'–';
     if(u.nowElems.sogMean)   u.nowElems.sogMean.textContent  =isFinite(sogStats.mean)?sogStats.mean.toFixed(2):'–';
 
     const fNow = Number.isFinite(fShowR)?fShowR:(Number.isFinite(fShowP)?fShowP:NaN);
@@ -1015,7 +1114,7 @@ function appendSyncedPoint(t_ref){
 
   syncLastMs=t_ref;
   pruneOld(t_ref);
-  recomputePeaksAndStatsAll();
+  recomputePeaks();
   updateAxisRange();
   chartTS.update('none'); chartSOG.update('none');
 }
@@ -1269,8 +1368,8 @@ function stopRec(){
   saveRecordingsToStorage();
   generateReportsTabs();
 
-  // CSV download (unchanged)
-  const header=['unit_id','timestamp_ms','iso_time','elapsed_s','seq','roll_deg','pitch_deg','lat','lon','gnss_ms','gnss_iso'];
+  // CSV download with athlete names
+  const header=['unit_id','athlete','timestamp_ms','iso_time','elapsed_s','seq','roll_deg','pitch_deg','lat','lon','gnss_ms','gnss_iso'];
   const lines=[header.join(',')];
   let topMarkLine = 'top_mark', startPt1Line = 'start_pt1', startPt2Line = 'start_pt2';
   if(window._topMarkCoords && typeof window._topMarkCoords.lat === 'number' && typeof window._topMarkCoords.lon === 'number') {
@@ -1290,7 +1389,9 @@ function stopRec(){
   lines.push(startPt2Line);
   for(const r of recRows){
     const iso=new Date(r.t).toISOString();
-    lines.push([r.unit,r.t,`"${iso.replace(/"/g,'""')}"`,
+    const u = units[r.unit];
+    const athlete = u ? u.customName || r.unit : r.unit;
+    lines.push([r.unit,athlete,r.t,`"${iso.replace(/"/g,'""')}"`,
                 (globalT0!==null?((r.t-globalT0)/1000).toFixed(3):''),
                 (r.seq??''),r.roll.toFixed(6),r.pitch.toFixed(6),
                 (Number.isFinite(r.lat)?r.lat.toFixed(6):''),(Number.isFinite(r.lon)?r.lon.toFixed(6):''),
@@ -1387,26 +1488,25 @@ function showReportFor(recId) {
   // Show stats and a box with roll/pitch distribs
   const stats = computeRecordingStats(rec.rows);
   const started = new Date(rec.startedAt);
-  let html = `<div class="small">Recording started: ${started.toLocaleString()}<br>Samples: ${rec.rows.length}</div>`;
+  let html = `<div class="small" style="margin-bottom:16px;">Recording started: ${started.toLocaleString()}<br>Samples: ${rec.rows.length}</div>`;
   html += stats;
-  // Add one tile per plot
-  const plotW = 1200, plotH = 360;
+  const plotW = 900, plotH = 280;
   html += `
-    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 32px; margin-top:32px;">
-      <div class="card grow" style="padding:32px 24px;display:flex;flex-direction:column;gap:16px;min-height:${plotH+80}px;">
-        <div style='font-weight:700;margin-bottom:8px;text-align:center;'>Roll Distribution</div>
+    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-top:32px;">
+      <div class="card grow" style="padding:24px 20px;display:flex;flex-direction:column;gap:12px;min-height:${plotH+60}px;">
+        <div style='font-weight:700;margin-bottom:4px;text-align:center;'>Roll Distribution</div>
         <div class="plot"><canvas id="report-kde-roll" width="${plotW}" height="${plotH}" style="width:100%;height:100%;max-width:100%;max-height:100%;"></canvas></div>
       </div>
-      <div class="card grow" style="padding:32px 24px;display:flex;flex-direction:column;gap:16px;min-height:${plotH+80}px;">
-        <div style='font-weight:700;margin-bottom:8px;text-align:center;'>Pitch Distribution</div>
+      <div class="card grow" style="padding:24px 20px;display:flex;flex-direction:column;gap:12px;min-height:${plotH+60}px;">
+        <div style='font-weight:700;margin-bottom:4px;text-align:center;'>Pitch Distribution</div>
         <div class="plot"><canvas id="report-kde-pitch" width="${plotW}" height="${plotH}" style="width:100%;height:100%;max-width:100%;max-height:100%;"></canvas></div>
       </div>
-      <div class="card grow" style="padding:32px 24px;display:flex;flex-direction:column;gap:16px;min-height:${plotH+80}px;">
-        <div style='font-weight:700;margin-bottom:8px;text-align:center;'>Roll Frequency Distribution</div>
+      <div class="card grow" style="padding:24px 20px;display:flex;flex-direction:column;gap:12px;min-height:${plotH+60}px;">
+        <div style='font-weight:700;margin-bottom:4px;text-align:center;'>Roll Frequency Distribution</div>
         <div class="plot"><canvas id="report-kde-freq-roll" width="${plotW}" height="${plotH}" style="width:100%;height:100%;max-width:100%;max-height:100%;"></canvas></div>
       </div>
-      <div class="card grow" style="padding:32px 24px;display:flex;flex-direction:column;gap:16px;min-height:${plotH+80}px;">
-        <div style='font-weight:700;margin-bottom:8px;text-align:center;'>Pitch Frequency Distribution</div>
+      <div class="card grow" style="padding:24px 20px;display:flex;flex-direction:column;gap:12px;min-height:${plotH+60}px;">
+        <div style='font-weight:700;margin-bottom:4px;text-align:center;'>Pitch Frequency Distribution</div>
         <div class="plot"><canvas id="report-kde-freq-pitch" width="${plotW}" height="${plotH}" style="width:100%;height:100%;max-width:100%;max-height:100%;"></canvas></div>
       </div>
     </div>
@@ -1422,9 +1522,13 @@ function showReportFor(recId) {
       byUnit[r.unit].push(r);
     });
     const unitIds = Object.keys(byUnit);
-    const colors = (window.COLORS_BASE || ["#4cc9f0","#ffd166","#ef476f","#06d6a0"]);
+    // Get unit colors from localStorage
+    window.unitSettings = JSON.parse(localStorage.getItem('unitColors') || '{}');
     const colorMap = {};
-    unitIds.forEach((id, i) => { colorMap[id] = colors[i % colors.length]; });
+    unitIds.forEach(id => { 
+      const storedUnit = window.unitSettings[id] || {};
+      colorMap[id] = storedUnit.color || COLORS_BASE[0];
+    });
     // Prepare KDE data for all units
     const kdeData = { roll: {}, pitch: {}, freqRoll: {}, freqPitch: {} };
     unitIds.forEach(unit => {
@@ -1478,23 +1582,63 @@ function showReportFor(recId) {
 // Compute stats for a recording
 function computeRecordingStats(rows) {
   if (!rows || !rows.length) return '';
+  // Ensure unit settings are loaded
+  if (!window.unitSettings) {
+    window.unitSettings = JSON.parse(localStorage.getItem('unitColors') || '{}');
+  }
   // Group by unit
   const byUnit = {};
   rows.forEach(r => {
     if (!byUnit[r.unit]) byUnit[r.unit] = [];
     byUnit[r.unit].push(r);
   });
+  // Get stored unit names and colors
+  const unitSettings = JSON.parse(localStorage.getItem('unitColors') || '{}');
   let html = '<div class="row">';
-  Object.keys(byUnit).forEach(unit => {
+  Object.keys(byUnit).forEach((unit, i) => {
     const arr = byUnit[unit];
     const rolls = arr.map(r => r.roll).filter(Number.isFinite);
     const pitchs = arr.map(r => r.pitch).filter(Number.isFinite);
+    const times = arr.map(r => r.t);
     const meanStdRoll = meanStd(rolls);
     const meanStdPitch = meanStd(pitchs);
-    html += `<div class="card half"><b>${unit}</b><br>`;
-    html += `Roll: mean <b>${meanStdRoll.mean.toFixed(2)}</b>, std <b>${meanStdRoll.std.toFixed(2)}</b><br>`;
-    html += `Pitch: mean <b>${meanStdPitch.mean.toFixed(2)}</b>, std <b>${meanStdPitch.std.toFixed(2)}</b><br>`;
-    html += `</div>`;
+
+    // Peak detection and frequency calculation
+    const minDist = 300; // ms
+    const minProm = 5.0; // deg
+    const rPeaks = detectPeaks(rolls, times, minDist, minProm);
+    const pPeaks = detectPeaks(pitchs, times, minDist, minProm);
+
+    // Calculate frequencies
+    const freq = (peaks) => {
+      if(peaks.length < 2) return NaN;
+      let s = 0, c = 0;
+      for(let i = 1; i < peaks.length; i++) {
+        const dt = (peaks[i].t - peaks[i-1].t)/1000;
+        if(dt > 0) { s += dt; c++; }
+      }
+      return c ? 1/(s/c) : NaN;
+    };
+    const fR = freq(rPeaks);
+    const fP = freq(pPeaks);
+    
+    // Get unit's custom name and color from window.unitSettings
+    const storedUnit = window.unitSettings[unit] || {};
+    const displayName = storedUnit.customName || unit;
+    const displayColor = storedUnit.color || COLORS_BASE[0];
+    
+    html += `<div class="card half unitStats" style="--ucolor:${displayColor}">`;
+    html += `<div style="font-weight:700;margin-bottom:8px;"><span class="unitTag" style="background:${displayColor}">${displayName}</span> — recording stats</div>`;
+    html += `<div class="grid">`;
+    html += `<div><div class="small">Mean Roll</div><div class="num">${meanStdRoll.mean.toFixed(2)}</div></div>`;
+    html += `<div><div class="small">Std Roll</div><div class="num">${meanStdRoll.std.toFixed(2)}</div></div>`;
+    html += `<div><div class="small">Mean Pitch</div><div class="num">${meanStdPitch.mean.toFixed(2)}</div></div>`;
+    html += `<div><div class="small">Std Pitch</div><div class="num">${meanStdPitch.std.toFixed(2)}</div></div>`;
+    html += `<div><div class="small">Peaks Roll</div><div class="num">${rPeaks.length}</div></div>`;
+    html += `<div><div class="small">Peaks Pitch</div><div class="num">${pPeaks.length}</div></div>`;
+    html += `<div><div class="small">Freq Roll (Hz)</div><div class="num">${isFinite(fR) ? fR.toFixed(2) : '–'}</div></div>`;
+    html += `<div><div class="small">Freq Pitch (Hz)</div><div class="num">${isFinite(fP) ? fP.toFixed(2) : '–'}</div></div>`;
+    html += `</div></div>`;
   });
   html += '</div>';
   return html;
@@ -1511,11 +1655,12 @@ function drawKDEMulti(canvasId, kdeData, min, max, n, factor, label, logKDE, col
     let ys = logKDE ? kdeOnGridLogBack(data, xs, factor) : kdeOnGridLogBackShift(data, xs, factor);
     const maxY = Math.max(...ys);
     const normYs = maxY > 0 ? ys.map(y => y / maxY * 100) : ys;
+    const storedUnit = window.unitSettings?.[unit] || {};
     return {
-      label: unit,
+      label: storedUnit.customName || unit,
       data: normYs,
-      borderColor: colorMap[unit] || '#4cc9f0',
-      backgroundColor: (colorMap[unit] || '#4cc9f0') + '33',
+      borderColor: colorMap[unit] || COLORS_BASE[0],
+      backgroundColor: (colorMap[unit] || COLORS_BASE[0]) + '33',
       pointRadius: 0,
       fill: true, // Enable area shading below line
       borderWidth: 2
@@ -1534,7 +1679,7 @@ function drawKDEMulti(canvasId, kdeData, min, max, n, factor, label, logKDE, col
       animation: false,
       layout: { padding: { left: 10, right: 10, bottom: 8, top: 4 } },
       plugins: {
-        legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: 'line', color: '#000' } },
+        legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: 'line', color: '#000000' } },
         tooltip: { mode: 'index', intersect: false, callbacks: { label: (ctx) => `${ctx.dataset.label}: ${Math.round(ctx.parsed.y)}%` } },
         annotation: !logXAxis ? red_zero_line() : undefined
       },
@@ -1545,9 +1690,9 @@ function drawKDEMulti(canvasId, kdeData, min, max, n, factor, label, logKDE, col
           title: { display: false },
           min: min,
           max: max,
-          grid: { color: '#888', tickLength: 4, lineWidth: 1 },
+          grid: { color: '#e0e0e0', tickLength: 4, lineWidth: 1 },
           ticks: {
-            color: '#000',
+            color: '#000000',
             padding: 6,
             maxRotation: 0,
             minRotation: 0,
@@ -1563,9 +1708,9 @@ function drawKDEMulti(canvasId, kdeData, min, max, n, factor, label, logKDE, col
           title: { display: false },
           min: min,
           max: max,
-          grid: { color: '#888', tickLength: 4, lineWidth: 1 },
+          grid: { color: '#e0e0e0', tickLength: 4, lineWidth: 1 },
           ticks: {
-            color: '#000',
+            color: '#000000',
             padding: 6,
             maxRotation: 0,
             minRotation: 0,
@@ -1578,8 +1723,8 @@ function drawKDEMulti(canvasId, kdeData, min, max, n, factor, label, logKDE, col
           title: { display: false },
           min: 0,
           max: 110,
-          grid: { color: '#888', tickLength: 4, lineWidth: 1 },
-          ticks: { color: '#000', display: false }
+          grid: { color: '#e0e0e0', tickLength: 4, lineWidth: 1 },
+          ticks: { color: '#000000', display: false }
         }
       }
     }
@@ -1588,7 +1733,7 @@ function drawKDEMulti(canvasId, kdeData, min, max, n, factor, label, logKDE, col
 
 // ---------- Tabs ----------
 function selectTab(name){
-  ['plot','map','stats','reports','settings'].forEach(t=>{
+  ['plot','map','reports','settings'].forEach(t=>{
     const el = document.getElementById('tab-'+t);
     if (el) el.classList.add('hidden');
   });
@@ -1606,6 +1751,16 @@ function selectTab(name){
 }
 document.querySelectorAll('.tabbtn').forEach(b=>b.addEventListener('click',()=>selectTab(b.dataset.tab)));
 
+// ---------- Unit Configuration ----------
+document.getElementById('saveUnitConfig')?.addEventListener('click', () => {
+  if (saveUnitConfig()) {
+    // Apply configurations to all existing units
+    Object.keys(units).forEach(unitId => {
+      applyUnitConfig(unitId);
+    });
+  }
+});
+
 // ---------- Unlock & connect ----------
 document.getElementById('btnUnlock').addEventListener('click',async ()=>{
   const pwd=document.getElementById('pw').value; if(!pwd){document.getElementById('unlockMsg').textContent='Enter a password.';return;}
@@ -1613,7 +1768,10 @@ document.getElementById('btnUnlock').addEventListener('click',async ()=>{
   try{
     const creds=await decryptCreds(pwd,ENCRYPTED_CREDS);
     viewer.user=creds.user; viewer.pass=creds.pass; unlocked=true;
-    document.getElementById('gate').classList.add('hidden'); document.getElementById('app').classList.remove('hidden');
+    document.getElementById('gate').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+    document.getElementById('maintabs').classList.remove('hidden');
+    document.getElementById('btnRecord').classList.remove('hidden');
     document.getElementById('cid').value='web-'+Math.random().toString(16).slice(2,10);
 
     chartTS=makeTS(); chartSOG=makeSOGChart(); makeMap();
@@ -1633,9 +1791,8 @@ document.getElementById('btnUnlock').addEventListener('click',async ()=>{
     applyWindow(document.getElementById('winSec').value); applyViewWindow(document.getElementById('viewSec').value);
     syncRefSelect.addEventListener('change', e=>setSyncRefMode(e.target.value));
 
-    // Theme UI + initial apply
-    initThemeUI();
-    applyTheme(currentThemeChoice());
+    // Apply default chart settings
+    applyChartDefaults();
 
     // Race buttons (now live in Settings)
     $('btnTopMark').addEventListener('click', startPlaceTopMark);
@@ -1744,7 +1901,7 @@ function connect(){
       const ref=getRefUnit(); if(ref===unit){ appendSyncedPoint(t); }
 
       chartSOG.update('none');
-      recomputePeaksAndStatsAll();
+      recomputePeaks();
       updateAxisRange();
 
     }catch(e){log('parse error: '+e);}
@@ -1786,8 +1943,8 @@ function coerceNum(v){
 }
 function validLatLon(lat,lon){return lat!==null&&lon!==null&&Number.isFinite(lat)&&Math.abs(lat)<=90&&Math.abs(lon)<=180;}
 
-// keep axes tight to window
-setInterval(updateAxisRange,500);
+// keep axes tight to window and update at 10Hz
+setInterval(updateAxisRange,100);
 
 // In case someone presses buttons early (before unlock init)
 const btnTM=document.getElementById('btnTopMark'); if(btnTM){ btnTM.addEventListener('click', startPlaceTopMark); }
