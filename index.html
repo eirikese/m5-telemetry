@@ -95,7 +95,12 @@
 </style>
 <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@3.0.1"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script>
+  // Register and enable the annotation plugin globally
+  Chart.register(ChartAnnotation);
+</script>
 </head>
 <body>
   <div class="topbar">
@@ -469,7 +474,10 @@ sogNum.addEventListener('change',e=>sogRange.value=e.target.value);
 // KDE smoothing controls
 const kdeAngRange=$('kdeFactorAngRange'), kdeAngNum=$('kdeFactorAng');
 const kdeFreqRange=$('kdeFactorFreqRange'), kdeFreqNum=$('kdeFactorFreq');
-function getKdeFactorAngles(){ return clamp(parseFloat(kdeAngNum.value||'0.3'),0.1,1); }
+function getKdeFactorAngles(isRoll=false){ 
+  const val = clamp(parseFloat(kdeAngNum.value||'0.3'),0.1,1);
+  return isRoll ? val * 1 : val; // Use half the smoothing for roll
+}
 function getKdeFactorFreq(){ return clamp(parseFloat(kdeFreqNum.value||'0.3'),0.1,1); }
 kdeAngRange.addEventListener('input',e=>{ kdeAngNum.value=e.target.value; updateUnifiedDistributions(); });
 kdeAngNum.addEventListener('change',e=>{ kdeAngRange.value=e.target.value; updateUnifiedDistributions(); });
@@ -580,6 +588,21 @@ function kdeOnGridLogBackShift(values, xs, factor=1){
 
 const points=(xs,ys)=>xs.map((x,i)=>({x,y:ys[i]}));
 
+// Helper function for zero line annotation
+function red_zero_line() {
+  return {
+    annotations: {
+      zeroline: {
+        type: 'line',
+        xMin: 0,
+        xMax: 0,
+        borderColor: '#ff0000',
+        borderWidth: 1
+      }
+    }
+  };
+}
+
 // multi-dataset density chart
 function makeDensityChartMulti(ctx, label, xConf){
   const {min,max,step,type='linear'}=xConf;
@@ -592,12 +615,21 @@ function makeDensityChartMulti(ctx, label, xConf){
       scales:{
         x:{ type, min, max,
             grid:{color:Chart.defaults.borderColor,tickLength:4},
-            ticks:{color:Chart.defaults.color, padding:6, maxRotation:0, minRotation:0, stepSize:step, callback:(v)=>String(v)}},
+            ticks:{
+              color:Chart.defaults.color,
+              padding:6,
+              maxRotation:0,
+              minRotation:0,
+              callback:(v)=>String(v),
+              values: [-40, -30, -20, -10, 0, 10, 20, 30, 40]
+            }
+          },
         y:{min:0, max:110, grid:{color:Chart.defaults.borderColor,tickLength:4}, ticks:{display:false}}
       },
       plugins:{
         legend:{position:'bottom',labels:{boxWidth:10,boxHeight:10,usePointStyle:true,pointStyle:'line'}},
-        tooltip:{mode:'index',intersect:false,callbacks:{label:(ctx)=>`${ctx.dataset.label}: ${Math.round(ctx.parsed.y)}%`}}
+        tooltip:{mode:'index',intersect:false,callbacks:{label:(ctx)=>`${ctx.dataset.label}: ${Math.round(ctx.parsed.y)}%`}},
+        annotation: red_zero_line()
       },
       elements:{line:{tension:0.25,borderWidth:2}, point:{radius:0}}
     }
@@ -613,7 +645,7 @@ function upsertDistDataset(chart, map, unitId, color){
 }
 
 // ---------- distributions state ----------
-const DEG_RANGE={min:-40,max:40,step:10,gridCnt:161};
+const DEG_RANGE={min:-40,max:40,step:10,gridCnt:160};
 const FREQ_RANGE={min:0.01,max:5,step:1,gridCnt:200};
 let distCharts={roll:null,pitch:null,freq:null, xsDeg:null, xsHz:null};
 let distIdx={roll:{},pitch:{},freq:{}};
@@ -852,7 +884,8 @@ function updateUnifiedDistributions(){
   for(const ds of distCharts.pitch.data.datasets){ ds.hidden=true; ds.data.length=0; }
   for(const ds of distCharts.freq.data.datasets){ ds.hidden=true; ds.data.length=0; }
 
-  const angK=getKdeFactorAngles();
+  const rollK=getKdeFactorAngles(true);
+  const pitchK=getKdeFactorAngles(false);
   const frqK=getKdeFactorFreq();
 
   for(const id of Object.keys(units)){
@@ -871,7 +904,7 @@ function updateUnifiedDistributions(){
     const {tWin,rWin,pWin}=getWindowForUnit(u,winSec);
 
     if(rWin.length){
-      let ys=kdeOnGridLogBackShift(rWin,distCharts.xsDeg,angK);
+      let ys=kdeOnGridLogBackShift(rWin,distCharts.xsDeg,rollK);
       const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
       const ds=distCharts.roll.data.datasets[rI];
       ds.data=points(distCharts.xsDeg,ys);
@@ -880,7 +913,7 @@ function updateUnifiedDistributions(){
     }
 
     if(pWin.length){
-      let ys=kdeOnGridLogBackShift(pWin,distCharts.xsDeg,angK);
+      let ys=kdeOnGridLogBackShift(pWin,distCharts.xsDeg,pitchK);
       const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
       const ds=distCharts.pitch.data.datasets[pI];
       ds.data=points(distCharts.xsDeg,ys);
@@ -1356,33 +1389,28 @@ function showReportFor(recId) {
   const started = new Date(rec.startedAt);
   let html = `<div class="small">Recording started: ${started.toLocaleString()}<br>Samples: ${rec.rows.length}</div>`;
   html += stats;
-  // Add box with roll/pitch distribs
-  const plotW = 1200, plotH = 440;
-  html += `<div class="card grow" style="padding:32px 24px;display:flex;flex-direction:column;gap:36px;min-height:${plotH+80}px;margin-top:32px;">
-    <div style='display:grid;grid-template-columns:repeat(2,1fr);gap:32px;width:100%;height:${plotH}px;'>
-      <div style='display:flex;flex-direction:column;align-items:center;justify-content:stretch;height:100%'>
-        <canvas id="report-kde-roll" width="${plotW}" height="${plotH}" style="width:100%;height:100%;max-width:100%;max-height:100%;"></canvas>
-        <div class='tiny' style='text-align:center'>Roll Distribution</div>
+  // Add one tile per plot
+  const plotW = 1200, plotH = 360;
+  html += `
+    <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 32px; margin-top:32px;">
+      <div class="card grow" style="padding:32px 24px;display:flex;flex-direction:column;gap:16px;min-height:${plotH+80}px;">
+        <div style='font-weight:700;margin-bottom:8px;text-align:center;'>Roll Distribution</div>
+        <div class="plot"><canvas id="report-kde-roll" width="${plotW}" height="${plotH}" style="width:100%;height:100%;max-width:100%;max-height:100%;"></canvas></div>
       </div>
-      <div style='display:flex;flex-direction:column;align-items:center;justify-content:stretch;height:100%'>
-        <canvas id="report-kde-pitch" width="${plotW}" height="${plotH}" style="width:100%;height:100%;max-width:100%;max-height:100%;"></canvas>
-        <div class='tiny' style='text-align:center'>Pitch Distribution</div>
+      <div class="card grow" style="padding:32px 24px;display:flex;flex-direction:column;gap:16px;min-height:${plotH+80}px;">
+        <div style='font-weight:700;margin-bottom:8px;text-align:center;'>Pitch Distribution</div>
+        <div class="plot"><canvas id="report-kde-pitch" width="${plotW}" height="${plotH}" style="width:100%;height:100%;max-width:100%;max-height:100%;"></canvas></div>
       </div>
-    </div>
-  </div>`;
-  // Add box for roll/pitch freq distribs below
-  html += `<div class="card grow" style="padding:32px 24px;display:flex;flex-direction:column;gap:36px;min-height:${plotH+80}px;margin-top:32px;">
-    <div style='display:grid;grid-template-columns:repeat(2,1fr);gap:32px;width:100%;height:${plotH}px;'>
-      <div style='display:flex;flex-direction:column;align-items:center;justify-content:stretch;height:100%'>
-        <canvas id="report-kde-freq-roll" width="${plotW}" height="${plotH}" style="width:100%;height:100%;max-width:100%;max-height:100%;"></canvas>
-        <div class='tiny' style='text-align:center'>Roll Frequency Distribution</div>
+      <div class="card grow" style="padding:32px 24px;display:flex;flex-direction:column;gap:16px;min-height:${plotH+80}px;">
+        <div style='font-weight:700;margin-bottom:8px;text-align:center;'>Roll Frequency Distribution</div>
+        <div class="plot"><canvas id="report-kde-freq-roll" width="${plotW}" height="${plotH}" style="width:100%;height:100%;max-width:100%;max-height:100%;"></canvas></div>
       </div>
-      <div style='display:flex;flex-direction:column;align-items:center;justify-content:stretch;height:100%'>
-        <canvas id="report-kde-freq-pitch" width="${plotW}" height="${plotH}" style="width:100%;height:100%;max-width:100%;max-height:100%;"></canvas>
-        <div class='tiny' style='text-align:center'>Pitch Frequency Distribution</div>
+      <div class="card grow" style="padding:32px 24px;display:flex;flex-direction:column;gap:16px;min-height:${plotH+80}px;">
+        <div style='font-weight:700;margin-bottom:8px;text-align:center;'>Pitch Frequency Distribution</div>
+        <div class="plot"><canvas id="report-kde-freq-pitch" width="${plotW}" height="${plotH}" style="width:100%;height:100%;max-width:100%;max-height:100%;"></canvas></div>
       </div>
     </div>
-  </div>`;
+  `;
   document.getElementById('reportsContent').innerHTML = html;
   // Draw the distribs
   setTimeout(() => {
@@ -1439,8 +1467,8 @@ function showReportFor(recId) {
       }
       kdeData.freqPitch[unit] = { data: freqPitch };
     });
-  drawKDEMulti('report-kde-roll', kdeData.roll, DEG_RANGE.min, DEG_RANGE.max, DEG_RANGE.gridCnt, getKdeFactorAngles(), 'Roll (°)', false, colorMap);
-  drawKDEMulti('report-kde-pitch', kdeData.pitch, DEG_RANGE.min, DEG_RANGE.max, DEG_RANGE.gridCnt, getKdeFactorAngles(), 'Pitch (°)', false, colorMap);
+  drawKDEMulti('report-kde-roll', kdeData.roll, DEG_RANGE.min, DEG_RANGE.max, DEG_RANGE.gridCnt, getKdeFactorAngles(true), 'Roll (°)', false, colorMap);
+  drawKDEMulti('report-kde-pitch', kdeData.pitch, DEG_RANGE.min, DEG_RANGE.max, DEG_RANGE.gridCnt, getKdeFactorAngles(false), 'Pitch (°)', false, colorMap);
   // Use logKDE=true and logXAxis=true for frequency plots
   drawKDEMulti('report-kde-freq-roll', kdeData.freqRoll, FREQ_RANGE.min, FREQ_RANGE.max, FREQ_RANGE.gridCnt, getKdeFactorFreq(), 'Freq (roll)', true, colorMap, true);
   drawKDEMulti('report-kde-freq-pitch', kdeData.freqPitch, FREQ_RANGE.min, FREQ_RANGE.max, FREQ_RANGE.gridCnt, getKdeFactorFreq(), 'Freq (pitch)', true, colorMap, true);
@@ -1472,121 +1500,6 @@ function computeRecordingStats(rows) {
   return html;
 }
 
-// Generate KDE distribution plots for roll, pitch, and frequency per unit (same logic as live tool)
-function generateRecordingDistributions(rows, filterUnits) {
-  if (!rows || !rows.length) return '';
-// (plots removed)
-
-// Draw horizontal error bars for mean ± SD (angles) with value labels
-function drawErrorBarMulti(canvasId, kdeData, label, colorMap, minY, maxY) {
-  const el = document.getElementById(canvasId);
-  if (!el) return;
-  const units = Object.keys(kdeData);
-  const means = units.map(u => meanStd(kdeData[u].data).mean);
-  const stds = units.map(u => meanStd(kdeData[u].data).std);
-  const data = units.map((u,i) => ({
-    x: means[i],
-    xMin: means[i] - stds[i],
-    xMax: means[i] + stds[i],
-    y: units.length - i - 1
-  }));
-  new Chart(el.getContext('2d'), {
-    type: 'scatter',
-    data: {
-      datasets: units.map((u,i) => ({
-        label: u,
-        data: [data[i]],
-        backgroundColor: colorMap[u] || '#4cc9f0',
-        borderColor: colorMap[u] || '#4cc9f0',
-        pointRadius: 7,
-        pointHoverRadius: 10,
-        showLine: false,
-        errorBar: stds[i]
-      }))
-    },
-    options: {
-      indexAxis: 'y',
-      responsive: false,
-      plugins: {
-        legend: { display: false, labels: { font: { size: 26 } } },
-        tooltip: {
-          bodyFont: { size: 28 },
-          titleFont: { size: 30 },
-          callbacks: {
-            label: function(context) {
-              const idx = context.dataIndex;
-              return `${units[idx]}: ${means[idx].toFixed(2)} ± ${stds[idx].toFixed(2)}`;
-            }
-          }
-        },
-        annotation: {
-          annotations: data.map((d,i) => ({
-            type: 'line',
-            xMin: d.xMin, xMax: d.xMax, yMin: d.y, yMax: d.y,
-            borderColor: colorMap[units[i]] || '#4cc9f0',
-            borderWidth: 6,
-            label: {
-              display: false
-            }
-          }))
-        }
-      },
-      scales: {
-        x: {
-          min: minY, max: maxY,
-          title: { display: true, text: label, font: { size: 32 } },
-          grid: { drawBorder: true, color: 'rgba(42,56,90,0.3)', lineWidth: 1 },
-          ticks: { stepSize: 20, font: { size: 28 } }
-        },
-        y: {
-          min: -0.5, max: units.length-0.5,
-          display: true,
-          grid: { display: false },
-          ticks: {
-            callback: function(value, idx) { return units[units.length-1-idx]; },
-            stepSize: 1,
-            font: { size: 28 }
-          },
-          title: { display: false, font: { size: 32 } }
-        }
-      }
-    },
-    plugins: [{
-      id: 'customErrorBar',
-      afterDatasetsDraw(chart) {
-        const ctx = chart.ctx;
-        chart.data.datasets.forEach((ds, i) => {
-          const meta = chart.getDatasetMeta(i);
-          if (!meta.data[0]) return;
-          const pt = meta.data[0];
-          const d = data[i];
-          const xMin = chart.scales.x.getPixelForValue(d.xMin);
-          const xMax = chart.scales.x.getPixelForValue(d.xMax);
-          const y = pt.y;
-          ctx.save();
-          ctx.strokeStyle = ds.borderColor;
-          ctx.lineWidth = 2;
-          ctx.beginPath();
-          ctx.moveTo(xMin, y);
-          ctx.lineTo(xMax, y);
-          ctx.stroke();
-          // Draw value label above error bar
-          ctx.font = 'bold 28px sans-serif';
-          ctx.fillStyle = ds.borderColor;
-          ctx.textAlign = 'center';
-          ctx.textBaseline = 'bottom';
-          const labelText = `${means[i].toFixed(1)} ± ${stds[i].toFixed(1)}`;
-          const labelX = chart.scales.x.getPixelForValue(d.x);
-          ctx.fillText(labelText, labelX, y - 24);
-          ctx.restore();
-        });
-      }
-    }]
-  });
-}
-  return html;
-}
-
 // Draw multi-unit KDE
 function drawKDEMulti(canvasId, kdeData, min, max, n, factor, label, logKDE, colorMap, logXAxis) {
   const el = document.getElementById(canvasId);
@@ -1604,10 +1517,11 @@ function drawKDEMulti(canvasId, kdeData, min, max, n, factor, label, logKDE, col
       borderColor: colorMap[unit] || '#4cc9f0',
       backgroundColor: (colorMap[unit] || '#4cc9f0') + '33',
       pointRadius: 0,
-      fill: false,
+      fill: true, // Enable area shading below line
       borderWidth: 2
     };
   }).filter(Boolean);
+
   new Chart(el.getContext('2d'), {
     type: 'line',
     data: {
@@ -1615,161 +1529,58 @@ function drawKDEMulti(canvasId, kdeData, min, max, n, factor, label, logKDE, col
       datasets
     },
     options: {
-      responsive: false,
-      plugins: { legend: { display: true, position: 'top' } },
-      elements: { line: { borderWidth: 2 }, point: { radius: 0 } },
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      layout: { padding: { left: 10, right: 10, bottom: 8, top: 4 } },
+      plugins: {
+        legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: 'line', color: '#000' } },
+        tooltip: { mode: 'index', intersect: false, callbacks: { label: (ctx) => `${ctx.dataset.label}: ${Math.round(ctx.parsed.y)}%` } },
+        annotation: !logXAxis ? red_zero_line() : undefined
+      },
+      elements: { line: { tension: 0.25, borderWidth: 2 }, point: { radius: 0 } },
       scales: {
         x: logXAxis ? {
           type: 'logarithmic',
           title: { display: false },
           min: min,
           max: max,
+          grid: { color: '#888', tickLength: 4, lineWidth: 1 },
           ticks: {
-            maxTicksLimit: 5,
+            color: '#000',
+            padding: 6,
+            maxRotation: 0,
+            minRotation: 0,
+            maxTicksLimit: 100,
+            // No stepSize for log axis
             callback: function(value) {
-              // Show only nice log ticks
               if ([0.01,0.02,0.05,0.1,0.2,0.5,1,2,5].includes(value)) return value;
               return '';
             }
           }
-        } : { title: { display: false }, ticks: { maxTicksLimit: 5 } },
-        y: { title: { display: false }, min: 0, max: 110, display: false }
-      }
-    }
-  });
-}
-
-// Draw multi-unit bar with SD
-function drawBarSDMulti(canvasId, kdeData, label, colorMap) {
-  const el = document.getElementById(canvasId);
-  if (!el) return;
-  const units = Object.keys(kdeData);
-  const means = units.map(u => meanStd(kdeData[u].data).mean);
-  const stds = units.map(u => meanStd(kdeData[u].data).std);
-  // Angle bars: limit to -40..40, others autoscale
-  let minY, maxY, isAngle = false;
-  if (label.toLowerCase().includes('roll') || label.toLowerCase().includes('pitch')) {
-    minY = -40; maxY = 40; isAngle = true;
-  } else {
-    minY = Math.min(...means.map((m,i)=>m-2*stds[i]));
-    maxY = Math.max(...means.map((m,i)=>m+2*stds[i]));
-  }
-  new Chart(el.getContext('2d'), {
-    type: 'bar',
-    data: {
-      labels: units,
-      datasets: [{
-        label: label,
-        data: means,
-        backgroundColor: units.map(u => colorMap[u] || '#4cc9f0'),
-        borderColor: units.map(u => colorMap[u] || '#4cc9f0'),
-        borderWidth: 2
-      }]
-    },
-    options: {
-      responsive: false,
-      plugins: { legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: function(context) {
-              const idx = context.dataIndex;
-              return `${units[idx]}: ${means[idx].toFixed(2)} ± ${stds[idx].toFixed(2)}`;
-            }
+        } : {
+          type: 'linear',
+          title: { display: false },
+          min: min,
+          max: max,
+          grid: { color: '#888', tickLength: 4, lineWidth: 1 },
+          ticks: {
+            color: '#000',
+            padding: 6,
+            maxRotation: 0,
+            minRotation: 0,
+            stepSize: 10,
+            includeBounds: true,
+            callback: (v) => String(v)
           }
-        }
-      },
-      scales: {
-        x: { display: true },
+        },
         y: {
-          display: true,
-          min: minY,
-          max: maxY,
-          grid: {
-            drawBorder: true,
-            color: function(ctx) {
-              // Thicker zero line
-              if (ctx.tick && ctx.tick.value === 0) return '#fff';
-              return 'rgba(42,56,90,0.3)';
-            },
-            lineWidth: function(ctx) {
-              return (ctx.tick && ctx.tick.value === 0) ? 3 : 1;
-            },
-            z: 1
-          },
-          // Keep zero in the center for angle bars
-          offset: false,
-          ticks: isAngle ? { stepSize: 20 } : undefined
+          title: { display: false },
+          min: 0,
+          max: 110,
+          grid: { color: '#888', tickLength: 4, lineWidth: 1 },
+          ticks: { color: '#000', display: false }
         }
-      }
-    }
-  });
-}
-
-// Draw bar with SD
-function drawBarSD(canvasId, data, label) {
-  const el = document.getElementById(canvasId);
-  if (!el || !data.length) return;
-  const {mean, std} = meanStd(data);
-  new Chart(el.getContext('2d'), {
-    type: 'bar',
-    data: {
-      labels: [label],
-      datasets: [{
-        label: label,
-        data: [mean],
-        backgroundColor: '#4cc9f0',
-        borderColor: '#2a385a',
-        borderWidth: 2,
-        errorBar: [std]
-      }]
-    },
-    options: {
-      responsive: false,
-      plugins: { legend: { display: false },
-        tooltip: {
-          callbacks: {
-            label: function(context) {
-              return `${label}: ${mean.toFixed(2)} ± ${std.toFixed(2)}`;
-            }
-          }
-        }
-      },
-      scales: {
-        x: { display: false },
-        y: { display: true, min: Math.max(0, mean-2*std), max: mean+2*std }
-      }
-    }
-  });
-}
-
-// Draw KDE using same logic as live tool
-function drawKDE(canvasId, data, min, max, n, factor, label, logKDE) {
-  const el = document.getElementById(canvasId);
-  if (!el || !data.length) return;
-  const xs = linspace(min, max, n);
-  let ys;
-  if (logKDE) {
-    ys = kdeOnGridLogBack(data, xs, factor);
-  } else {
-    // Use kdeOnGridLogBackShift for roll/pitch (mirrors live tool)
-    ys = kdeOnGridLogBackShift(data, xs, factor);
-  }
-  // Normalize for display
-  const maxY = Math.max(...ys);
-  const normYs = maxY > 0 ? ys.map(y => y / maxY * 100) : ys;
-  new Chart(el.getContext('2d'), {
-    type: 'line',
-    data: {
-      labels: xs.map(x => x.toFixed(1)),
-      datasets: [{ label, data: normYs, borderColor: '#4cc9f0', backgroundColor: '#4cc9f033', pointRadius: 0, fill: true }]
-    },
-    options: {
-      responsive: false,
-      plugins: { legend: { display: false } },
-      elements: { line: { borderWidth: 2 }, point: { radius: 0 } },
-      scales: {
-        x: { title: { display: false }, ticks: { maxTicksLimit: 5 } },
-        y: { title: { display: false }, min: 0, max: 110, display: false }
       }
     }
   });
