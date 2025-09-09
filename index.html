@@ -916,7 +916,6 @@ function ensureUnit(unitId){
     if (distCharts.freq)  distCharts.freq.update('none');
   });
 
-  if (getRefUnit() === unitId && globalT0 === null) resetSyncSeries();
   chartTS.update('none'); chartSOG.update('none');
   return u;
 }
@@ -1725,14 +1724,52 @@ function showReportFor(recId) {
   html += `</div></div>`;
   // Stats tiles, one per athlete, only if shown
   html += `<div id="report-athlete-stats" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">`;
+  // Helper: calculate distance (meters) and bearing (degrees) between two lat/lon points
+  function haversine(lat1, lon1, lat2, lon2) {
+    const R = 6371000; // meters
+    const toRad = x => x * Math.PI / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+      Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+  }
+  function bearing(lat1, lon1, lat2, lon2) {
+    const toRad = x => x * Math.PI / 180;
+    const toDeg = x => x * 180 / Math.PI;
+    const dLon = toRad(lon2 - lon1);
+    const y = Math.sin(dLon) * Math.cos(toRad(lat2));
+    const x = Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+      Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLon);
+    let brng = Math.atan2(y, x);
+    brng = toDeg(brng);
+    return (brng + 360) % 360;
+  }
+
   unitIds.forEach(id => {
     if (!rec._athleteShow[id]) return;
     // Compute stats for this athlete
     const arr = byUnit[id] || [];
     const rolls = arr.map(r => r.roll).filter(Number.isFinite);
     const pitchs = arr.map(r => r.pitch).filter(Number.isFinite);
-    const sogs = arr.map(r => r.sog).filter(Number.isFinite);
-    const headings = arr.map(r => r.heading).filter(Number.isFinite);
+
+    // Calculate SOG and heading from lat/lon and t
+    const sogs = [];
+    const headings = [];
+    for (let i = 1; i < arr.length; ++i) {
+      const r1 = arr[i-1], r2 = arr[i];
+      if (Number.isFinite(r1.lat) && Number.isFinite(r1.lon) && Number.isFinite(r2.lat) && Number.isFinite(r2.lon) && Number.isFinite(r1.t) && Number.isFinite(r2.t)) {
+        const dt = (r2.t - r1.t) / 1000; // seconds
+        if (dt > 0 && dt < 30) { // skip huge jumps
+          const dist = haversine(r1.lat, r1.lon, r2.lat, r2.lon); // meters
+          sogs.push(dist / dt / 0.514444); // convert m/s to knots
+          headings.push(bearing(r1.lat, r1.lon, r2.lat, r2.lon));
+        }
+      }
+    }
+
     // Mean and SD helpers
     function meanStd(a) {
       if (!a.length) return {mean: null, sd: null, max: null};
@@ -2241,7 +2278,6 @@ function connect(){
       }
 
       // synced plot driver
-      const ref=getRefUnit(); if(ref===unit){ appendSyncedPoint(t); }
 
       chartSOG.update('none');
       recomputePeaks();
