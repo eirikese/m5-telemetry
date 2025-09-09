@@ -131,7 +131,10 @@
     <section id="tab-plot">
       <div class="row">
         <div class="card half" id="nowPanel">
-          <div style="font-weight:700;margin-bottom:8px;">Now</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <span style="font-weight:700;">Now</span>
+            <button id="btnToggleLivePlot" class="small" style="margin-left:8px;">Pause Live Plotting</button>
+          </div>
           <div id="nowUnits" class="grid" style="margin-top:10px;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:12px"></div>
         </div>
       </div>
@@ -302,21 +305,6 @@
           <div id="unitsList" class="grid" style="grid-template-columns:1fr;gap:8px"></div>
         </div>
 
-        <!-- Sync -->
-        <div class="card half">
-          <div style="font-weight:700;margin-bottom:8px;">Sync</div>
-          <div class="grid">
-            <div style="grid-column:1/-1">
-              <label>Reference unit</label>
-              <select id="syncRef"><option value="auto">Auto (first seen)</option></select>
-            </div>
-            <div>
-              <label>Nearest tolerance (ms)</label>
-              <input id="syncTol" type="number" value="120"/>
-            </div>
-          </div>
-          <div class="small" id="syncInfo"></div>
-        </div>
 
         <!-- Race Setup (moved here) -->
         <div class="card grow">
@@ -394,7 +382,7 @@ function applyChartDefaults() {
 let client=null, unlocked=false, viewer={user:null,pass:null};
 let chartTS=null, chartSOG=null;
 let map=null, mapInited=false, firstMapFixDone=false;
-let globalT0=null, syncLastMs=null;
+let globalT0=null;
 
 // top mark state
 let topMark=null; // {lat,lon}
@@ -572,7 +560,6 @@ function applyUnitConfig(unitId) {
       }
 
       // Update sync selector
-      const syncOpt = syncRefSelect.querySelector(`option[value="${unitId}"]`);
       if (syncOpt) syncOpt.textContent = unit.customName;
 
       refreshUnitStylesForTheme();
@@ -605,10 +592,6 @@ kdeFreqRange.addEventListener('input',e=>{ kdeFreqNum.value=e.target.value; upda
 kdeFreqNum.addEventListener('change',e=>{ kdeFreqRange.value=e.target.value; updateUnifiedDistributions(); });
 
 // sync
-let syncRefMode='auto';
-const syncRefSelect=$('syncRef');
-function setSyncRefMode(val){ syncRefMode=val; $('syncInfo').textContent=`Reference: ${val}`; resetSyncSeries(); }
-function getRefUnit(){ if(syncRefMode!=='auto' && units[syncRefMode]) return syncRefMode; return discoveredOrder.length? discoveredOrder[0] : null; }
 
 // recording
 let recActive=false, recRows=[], recStartedAt=null;
@@ -836,7 +819,6 @@ function ensureUnit(unitId){
   
   // Create or update configuration row
   updateUnitConfigRow(unitId);
-  const opt = document.createElement('option'); opt.value = unitId; opt.textContent = customName; syncRefSelect.appendChild(opt);
 
   // Create base unit object
   const u = units[unitId] = {baseColor, color, customName, originalName: unitId,
@@ -982,20 +964,13 @@ function updateAxisRange(){
     if(chartSOG){chartSOG.options.scales.x.min=0; chartSOG.options.scales.x.max=currentViewSec; chartSOG.update('none');}
     return;
   }
-  const last=syncLastMs||Date.now();
+  const last=lastPlotT||Date.now();
   const nowSec=(last-globalT0)/1000;
   const xmin=Math.max(0,nowSec-currentViewSec), xmax=Math.max(currentViewSec,nowSec);
   if(chartTS){chartTS.options.scales.x.min=Number(xmin.toFixed(1)); chartTS.options.scales.x.max=Number(xmax.toFixed(1)); chartTS.update('none');}
   if(chartSOG){chartSOG.options.scales.x.min=Number(xmin.toFixed(1)); chartSOG.options.scales.x.max=Number(xmax.toFixed(1)); chartSOG.update('none');}
 }
-function nearestIdx(times,target){
-  if(!times.length) return -1;
-  let i=times.length-1;
-  while(i>0 && times[i-1]>target) i--;
-  const c1=i, c0=Math.max(0,i-1);
-  const d1=Math.abs(times[c1]-target), d0=Math.abs(times[c0]-target);
-  return (d1<=d0)?c1:c0;
-}
+
 function pruneOld(nowMs){
   const keepMs=Math.max(parseFloat(winNum.value||'30')*1000,MAX_KEEP_SEC*1000);
   for(const id of Object.keys(units)){
@@ -1224,43 +1199,78 @@ function recomputePeaks(){
   updateUnifiedDistributions();
 }
 
-// ---------- sync plotting ----------
-function resetSyncSeries(){
-  syncLastMs=null;
-  let tfirst=null;
-  for(const id of Object.keys(units)){ if(units[id].times.length){ tfirst=(tfirst===null)?units[id].times[0]:Math.min(tfirst,units[id].times[0]); } }
-  if(tfirst!==null) globalT0=tfirst;
-  for(const id of Object.keys(units)){ units[id].seriesRoll.length=0; units[id].seriesPitch.length=0; }
-  chartTS.update('none'); updateAxisRange(); log(`sync reset → ref=${getRefUnit()||'none'}`);
-}
-function appendSyncedPoint(t_ref){
-  if(globalT0===null) globalT0=t_ref;
-  const tol=parseFloat($('syncTol').value||'120');
-  const x=(t_ref-globalT0)/1000;
-
-  for(const id of Object.keys(units)){
-    const u=units[id]; const idx=nearestIdx(u.times,t_ref);
-    let yR=null,yP=null;
-    if(idx>=0 && Math.abs(u.times[idx]-t_ref)<=tol){ yR=u.roll[idx]; yP=u.pitch[idx]; }
-    else {
-      const lastR=u.seriesRoll.length?u.seriesRoll[u.seriesRoll.length-1].y:null;
-      const lastP=u.seriesPitch.length?u.seriesPitch[u.seriesPitch.length-1].y:null;
-      const rawR=u.roll.length?u.roll[u.roll.length-1]:null;
-      const rawP=u.pitch.length?u.pitch[u.pitch.length-1]:null;
-      yR=(lastR!=null)?lastR:(rawR!=null?rawR:null);
-      yP=(lastP!=null)?lastP:(rawP!=null?rawP:null);
-      if(yR===null && yP===null) continue;
+// ---------- receiver clock-based plotting ----------
+let plotTimer = null;
+let livePlottingEnabled = true;
+let lastPlotT = 0;
+function startPlotTimer() {
+  if (plotTimer) clearInterval(plotTimer);
+  if (!livePlottingEnabled) return;
+  plotTimer = setInterval(() => {
+    const now = Date.now();
+    if (globalT0 === null) {
+      // Set globalT0 to the earliest data point across all units
+      let t0 = null;
+      for (const id of Object.keys(units)) {
+        if (units[id].times.length) {
+          const t = units[id].times[0];
+          if (t0 === null || t < t0) t0 = t;
+        }
+      }
+      if (t0 !== null) globalT0 = t0;
+      else return;
     }
-    u.seriesRoll.push({x,y:yR});
-    u.seriesPitch.push({x,y:yP});
-  }
-
-  syncLastMs=t_ref;
-  pruneOld(t_ref);
-  recomputePeaks();
-  updateAxisRange();
-  chartTS.update('none'); chartSOG.update('none');
+    const tPlot = now;
+    const x = (tPlot - globalT0) / 1000;
+    for (const id of Object.keys(units)) {
+      const u = units[id];
+      // Find the latest sample for this unit
+      let yR = null, yP = null;
+      if (u.times.length) {
+        // Only use data if it arrived since last plot tick
+        const lastT = u.times[u.times.length - 1];
+        if (!u._lastPlottedT || lastT > u._lastPlottedT) {
+          yR = u.roll[u.roll.length - 1];
+          yP = u.pitch[u.pitch.length - 1];
+          u._lastPlottedT = lastT;
+        }
+      }
+      // If new data, append; if not, append a gap (null)
+      if (yR !== null) {
+        u.seriesRoll.push({ x, y: yR });
+      } else {
+        u.seriesRoll.push({ x, y: null });
+      }
+      if (yP !== null) {
+        u.seriesPitch.push({ x, y: yP });
+      } else {
+        u.seriesPitch.push({ x, y: null });
+      }
+    }
+    pruneOld(tPlot);
+    recomputePeaks();
+    updateAxisRange();
+    chartTS.update('none');
+    chartSOG.update('none');
+    lastPlotT = tPlot;
+  }, 100); // 10Hz
 }
+startPlotTimer();
+// Live plotting toggle button logic
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('btnToggleLivePlot');
+  if (!btn) return;
+  btn.onclick = function() {
+    livePlottingEnabled = !livePlottingEnabled;
+    if (plotTimer) clearInterval(plotTimer);
+    if (livePlottingEnabled) {
+      btn.textContent = 'Pause Live Plotting';
+      startPlotTimer();
+    } else {
+      btn.textContent = 'Resume Live Plotting';
+    }
+  };
+});
 
 // ---------- velocity, distances & VMG ----------
 const Rm=6371000;
@@ -1685,8 +1695,68 @@ function showReportFor(recId) {
   // Show stats and a box with roll/pitch distribs
   const stats = computeRecordingStats(rec.rows);
   const started = new Date(rec.startedAt);
+  // Athlete show/hide controls
+  // Group by unit
+  const byUnit = {};
+  rec.rows.forEach(r => {
+    if (!byUnit[r.unit]) byUnit[r.unit] = [];
+    byUnit[r.unit].push(r);
+  });
+  const unitIds = Object.keys(byUnit);
+  // Get unit colors from localStorage
+  window.unitSettings = JSON.parse(localStorage.getItem('unitColors') || '{}');
+  const colorMap = {};
+  unitIds.forEach(id => { 
+    const storedUnit = window.unitSettings[id] || {};
+    colorMap[id] = storedUnit.color || COLORS_BASE[0];
+  });
+  // Show/hide state (persisted per report in-memory)
+  if (!rec._athleteShow) rec._athleteShow = {};
+  unitIds.forEach(id => { if (rec._athleteShow[id] === undefined) rec._athleteShow[id] = true; });
   let html = `<div class="small" style="margin-bottom:16px;">Recording started: ${started.toLocaleString()}<br>Samples: ${rec.rows.length}</div>`;
-  html += stats;
+  // Athlete show/hide buttons above stats
+  html += `<div class="card" style="margin-bottom:16px;padding:12px 16px 8px 16px;max-width:600px;">
+    <div style="font-weight:700;margin-bottom:8px;">Show/hide athletes:</div>
+    <div id="report-athlete-show" style="display:flex;gap:12px;flex-wrap:wrap;">`;
+  unitIds.forEach(id => {
+    const color = colorMap[id];
+    html += `<button class="small" data-athlete="${id}" style="background:${rec._athleteShow[id] ? color : '#eee'};color:${rec._athleteShow[id] ? '#fff':'#333'};border-radius:6px;padding:2px 10px 2px 10px;min-width:60px;cursor:pointer;">${rec._athleteShow[id] ? 'Hide' : 'Show'} ${window.unitSettings[id]?.name || id}</button>`;
+  });
+  html += `</div></div>`;
+  // Stats tiles, one per athlete, only if shown
+  html += `<div id="report-athlete-stats" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">`;
+  unitIds.forEach(id => {
+    if (!rec._athleteShow[id]) return;
+    // Compute stats for this athlete
+    const arr = byUnit[id] || [];
+    const rolls = arr.map(r => r.roll).filter(Number.isFinite);
+    const pitchs = arr.map(r => r.pitch).filter(Number.isFinite);
+    const sogs = arr.map(r => r.sog).filter(Number.isFinite);
+    const headings = arr.map(r => r.heading).filter(Number.isFinite);
+    // Mean and SD helpers
+    function meanStd(a) {
+      if (!a.length) return {mean: null, sd: null, max: null};
+      const mean = a.reduce((s,v)=>s+v,0)/a.length;
+      const sd = Math.sqrt(a.reduce((s,v)=>s+(v-mean)*(v-mean),0)/a.length);
+      const max = Math.max(...a);
+      return {mean, sd, max};
+    }
+    const rollStats = meanStd(rolls);
+    const pitchStats = meanStd(pitchs);
+    const sogStats = meanStd(sogs);
+    const headingStats = meanStd(headings);
+    html += `<div class="card half unitStats" style="--ucolor:${colorMap[id]};min-width:200px;">
+  <div style="font-weight:700;margin-bottom:8px;"><span class="unitTag" style="background:${colorMap[id]}">${window.unitSettings[id]?.name || id}</span></div>
+      <div class="grid">
+        <div><div class="small">Roll (°)</div><div class="num">${rollStats.mean!==null ? rollStats.mean.toFixed(2)+' ±'+rollStats.sd.toFixed(2)+'°' : '–'}</div></div>
+        <div><div class="small">Pitch (°)</div><div class="num">${pitchStats.mean!==null ? pitchStats.mean.toFixed(2)+' ±'+pitchStats.sd.toFixed(2)+'°' : '–'}</div></div>
+        <div><div class="small">SOG (kt)</div><div class="num">${sogStats.mean!==null ? sogStats.mean.toFixed(2)+' ±'+sogStats.sd.toFixed(2) : '–'}</div></div>
+        <div><div class="small">Max SOG (kt)</div><div class="num">${sogStats.max!==null ? sogStats.max.toFixed(2) : '–'}</div></div>
+        <div><div class="small">Heading (°)</div><div class="num">${headingStats.mean!==null ? headingStats.mean.toFixed(1)+' ±'+headingStats.sd.toFixed(1)+'°' : '–'}</div></div>
+      </div>
+    </div>`;
+  });
+  html += `</div>`;
   const plotW = 900, plotH = 280;
   html += `
     <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; margin-top:32px;">
@@ -1709,28 +1779,22 @@ function showReportFor(recId) {
     </div>
   `;
   document.getElementById('reportsContent').innerHTML = html;
-  // Draw the distribs
+  // Draw the distribs and handle show/hide
   setTimeout(() => {
-    const rows = rec.rows;
-    // Group by unit
+    // Only include shown athletes
+    const shownIds = unitIds.filter(id => rec._athleteShow[id]);
+    // Group by unit, filtered
     const byUnit = {};
-    rows.forEach(r => {
-      if (!byUnit[r.unit]) byUnit[r.unit] = [];
-      byUnit[r.unit].push(r);
+    rec.rows.forEach(r => {
+      if (shownIds.includes(r.unit)) {
+        if (!byUnit[r.unit]) byUnit[r.unit] = [];
+        byUnit[r.unit].push(r);
+      }
     });
-    const unitIds = Object.keys(byUnit);
-    // Get unit colors from localStorage
-    window.unitSettings = JSON.parse(localStorage.getItem('unitColors') || '{}');
-    const colorMap = {};
-    unitIds.forEach(id => { 
-      const storedUnit = window.unitSettings[id] || {};
-      colorMap[id] = storedUnit.color || COLORS_BASE[0];
-    });
-
-    // Prepare KDE data for all units, using the same logic as live distribs
+    // Prepare KDE data for all shown units
     const kdeData = { roll: {}, pitch: {}, freqRoll: {}, freqPitch: {} };
-    unitIds.forEach(unit => {
-      const arr = byUnit[unit];
+    shownIds.forEach(unit => {
+      const arr = byUnit[unit] || [];
       const rolls = arr.map(r => r.roll).filter(Number.isFinite);
       const pitchs = arr.map(r => r.pitch).filter(Number.isFinite);
       const times = arr.map(r => r.t).filter(Number.isFinite);
@@ -1743,7 +1807,6 @@ function showReportFor(recId) {
       kdeData.freqRoll[unit] = { data: freqSamplesFromPeaks(rPeaks) };
       kdeData.freqPitch[unit] = { data: freqSamplesFromPeaks(pPeaks) };
     });
-
     // Compute y max for roll/pitch and freq using KDE smoothing and scaling by 100
     const xsRoll = linspace(DEG_RANGE.min, DEG_RANGE.max, DEG_RANGE.gridCnt);
     const xsFreq = linspace(FREQ_RANGE.min, FREQ_RANGE.max, FREQ_RANGE.gridCnt);
@@ -1774,14 +1837,20 @@ function showReportFor(recId) {
     });
     const rollPitchMax = Math.max(10, rollMax, pitchMax) * 1.05;
     const freqMax = Math.max(10, freqRollMax, freqPitchMax) * 1.05;
-
     // Draw roll and pitch distribs (as before)
     drawKDEMulti('report-kde-roll', kdeData.roll, DEG_RANGE.min, DEG_RANGE.max, DEG_RANGE.gridCnt, getKdeFactorAngles(true), 'Roll (°)', false, colorMap, false, rollPitchMax);
     drawKDEMulti('report-kde-pitch', kdeData.pitch, DEG_RANGE.min, DEG_RANGE.max, DEG_RANGE.gridCnt, getKdeFactorAngles(false), 'Pitch (°)', false, colorMap, false, rollPitchMax);
-
     // Draw freq distribs using the same style as roll/pitch (linear x axis, kde smoothing, AVG line/label logic)
     drawKDEMulti('report-kde-freq-roll', kdeData.freqRoll, FREQ_RANGE.min, FREQ_RANGE.max, FREQ_RANGE.gridCnt, getKdeFactorFreq(), 'Freq (roll)', false, colorMap, false, freqMax);
     drawKDEMulti('report-kde-freq-pitch', kdeData.freqPitch, FREQ_RANGE.min, FREQ_RANGE.max, FREQ_RANGE.gridCnt, getKdeFactorFreq(), 'Freq (pitch)', false, colorMap, false, freqMax);
+    // Add event listeners for show/hide buttons
+    document.querySelectorAll('#report-athlete-show button[data-athlete]').forEach(btn => {
+      btn.onclick = function() {
+        const id = btn.getAttribute('data-athlete');
+        rec._athleteShow[id] = !rec._athleteShow[id];
+        showReportFor(recId);
+      };
+    });
   }, 50);
 }
 
@@ -2064,7 +2133,6 @@ document.getElementById('btnUnlock').addEventListener('click',async ()=>{
 
     setStatus('unlocked — not connected',false);
     applyWindow(document.getElementById('winSec').value); applyViewWindow(document.getElementById('viewSec').value);
-    syncRefSelect.addEventListener('change', e=>setSyncRefMode(e.target.value));
 
     // Apply default chart settings
     applyChartDefaults();
@@ -2203,7 +2271,7 @@ document.getElementById('btnClear').addEventListener('click',()=>{
   if(distCharts.roll){ for(const ds of distCharts.roll.data.datasets){ ds.data.length=0; ds.hidden=true; } distCharts.roll.update('none'); }
   if(distCharts.pitch){ for(const ds of distCharts.pitch.data.datasets){ ds.data.length=0; ds.hidden=true; } distCharts.pitch.update('none'); }
   if(distCharts.freq){ for(const ds of distCharts.freq.data.datasets){ ds.data.length=0; ds.hidden=true; } distCharts.freq.update('none'); }
-  globalT0=null; syncLastMs=null; chartTS.update('none'); chartSOG.update('none'); log('cleared');
+  globalT0=null; chartTS.update('none'); chartSOG.update('none'); log('cleared');
   firstMapFixDone=false; if(mapInited) map.setView([0,0],2);
 });
 
