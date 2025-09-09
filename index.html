@@ -98,7 +98,7 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
 <script>
   // Register and enable the annotation plugin globally
-  Chart.register(ChartAnnotation);
+  Chart.register(window['chartjs-plugin-annotation']);
 </script>
 </head>
 <body>
@@ -146,26 +146,28 @@
           <div class="small" id="sogInfo"></div>
         </div>
       </div>
+
       <div class="row">
         <div class="card half">
-          <div style="font-weight:700;margin-bottom:8px;">Distributions by athlete (window)</div>
-          <div class="dgrid">
-            <div class="dens-wrap">
-              <div class="dens-head">Roll (°) — per athlete</div>
-              <canvas id="dist-roll"></canvas>
-            </div>
-            <div class="dens-wrap">
-              <div class="dens-head">Pitch (°) — per athlete</div>
-              <canvas id="dist-pitch"></canvas>
-            </div>
-            <div class="dens-wrap">
-              <div class="dens-head">Frequency (Hz) — per athlete</div>
-              <canvas id="dist-freq"></canvas>
-            </div>
-          </div>
-          <div class="tiny">Roll/Pitch X: −40…+40°. Frequency X: 0.01–5 Hz. Y: % of that athlete’s peak (0–110%).</div>
+          <div class="dens-head" style="font-weight:700;">Roll (°) — per athlete</div>
+          <div class="plot"><canvas id="dist-roll"></canvas></div>
+        </div>
+        <div class="card half">
+          <div class="dens-head" style="font-weight:700;">Pitch (°) — per athlete</div>
+          <div class="plot"><canvas id="dist-pitch"></canvas></div>
         </div>
       </div>
+      <div class="row">
+        <div class="card half">
+          <div class="dens-head" style="font-weight:700;">Frequency (Roll, Hz) — per athlete</div>
+          <div class="plot"><canvas id="dist-freq-roll"></canvas></div>
+        </div>
+        <div class="card half">
+          <div class="dens-head" style="font-weight:700;">Frequency (Pitch, Hz) — per athlete</div>
+          <div class="plot"><canvas id="dist-freq-pitch"></canvas></div>
+        </div>
+      </div>
+      <div class="tiny">Roll/Pitch X: −40…+40°. Frequency X: 0.01–5 Hz. Y: direct percentage (density × 100).</div>
     </section>
 
     <!-- MAP TAB -->
@@ -220,6 +222,20 @@
           </div>
         </div>
 
+        <!-- AVG Line/Label Toggles -->
+        <div class="card half">
+          <div style="font-weight:700;margin-bottom:8px;">Distribution AVG Line/Label</div>
+          <div class="btns">
+            <label style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" id="showAvgLine" checked>
+              Show AVG Line
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;">
+              <input type="checkbox" id="showAvgLabel">
+              Show AVG Label
+            </label>
+          </div>
+        </div>
         <!-- Windows/Peaks/GNSS -->
         <div class="card half">
           <div style="font-weight:700;margin-bottom:8px;">Windows, Peaks & GNSS</div>
@@ -693,6 +709,51 @@ function kdeOnGridLogBackShift(values, xs, factor=1){
 const points=(xs,ys)=>xs.map((x,i)=>({x,y:ys[i]}));
 
 // Helper function for zero line annotation
+// General function to add a dotted average line with AVG label in athlete color
+// showLine: show/hide the vertical line, showLabel: show/hide the label
+function addAvgLineToDistribChart(chart, avg, color, labelText, showLine = true, showLabel = true) {
+  if (!chart || !chart.options.plugins) return;
+  if (!chart.options.plugins.annotation) chart.options.plugins.annotation = {};
+  // Use labelText if provided, otherwise use color as a unique key (since color is per athlete)
+  // If both are undefined, fallback to avg value
+  let annId = 'avgline_';
+  if (labelText) {
+    annId += labelText.replace(/[^a-zA-Z0-9]/g, '');
+  } else if (color) {
+    annId += color.replace(/[^a-zA-Z0-9]/g, '');
+  } else {
+    annId += String(avg).replace(/[^a-zA-Z0-9]/g, '');
+  }
+  if (chart.options.plugins.annotation.annotations && chart.options.plugins.annotation.annotations[annId]) {
+    delete chart.options.plugins.annotation.annotations[annId];
+  }
+  if (!chart.options.plugins.annotation.annotations) chart.options.plugins.annotation.annotations = {};
+  chart.options.plugins.annotation.annotations[annId] = {
+    type: 'line',
+    xMin: avg,
+    xMax: avg,
+    borderColor: showLine ? color : 'rgba(0,0,0,0)',
+    borderWidth: showLine ? 2 : 0,
+    borderDash: [6, 6],
+    label: {
+      display: !!showLabel,
+      content: 'AVG  ' + avg.toFixed(2),
+      color: color,
+      backgroundColor: 'rgba(0,0,0,0)',
+      position: 'bottom',
+      yAdjust: 40,
+      font: {size: 12 },
+      padding: 0,
+      cornerRadius: 0,
+      borderWidth: 0,
+      borderRadius: 0,
+      textAlign: 'center',
+      xAdjust: 0
+    },
+    z: 20
+  };
+  chart.update('none');
+}
 function red_zero_line() {
   return {
     annotations: {
@@ -979,7 +1040,7 @@ function freqSamplesFromPeaks(peaks){
   return out;
 }
 function updateUnifiedDistributions(){
-  if(!distCharts.roll||!distCharts.pitch||!distCharts.freq) return;
+  if(!distCharts.roll||!distCharts.pitch||!distCharts.freqRoll||!distCharts.freqPitch) return;
   const winSec=parseFloat(winNum.value||'30');
 
   if(!distCharts.xsDeg){ distCharts.xsDeg=linspace(DEG_RANGE.min,DEG_RANGE.max,DEG_RANGE.gridCnt); }
@@ -987,22 +1048,45 @@ function updateUnifiedDistributions(){
 
   for(const ds of distCharts.roll.data.datasets){ ds.hidden=true; ds.data.length=0; }
   for(const ds of distCharts.pitch.data.datasets){ ds.hidden=true; ds.data.length=0; }
-  for(const ds of distCharts.freq.data.datasets){ ds.hidden=true; ds.data.length=0; }
+  for(const ds of distCharts.freqRoll.data.datasets){ ds.hidden=true; ds.data.length=0; }
+  for(const ds of distCharts.freqPitch.data.datasets){ ds.hidden=true; ds.data.length=0; }
+
+
+  // Get current toggle states for AVG line/label
+  let showAvgLine = true, showAvgLabel = false;
+  const lineBox = document.getElementById('showAvgLine');
+  const labelBox = document.getElementById('showAvgLabel');
+  if (lineBox) showAvgLine = !!lineBox.checked;
+  if (labelBox) showAvgLabel = !!labelBox.checked;
+
+  // Remove all previous avg annotations from all distrib charts
+  [distCharts.roll, distCharts.pitch, distCharts.freqRoll, distCharts.freqPitch].forEach(chart => {
+    if (chart && chart.options.plugins && chart.options.plugins.annotation && chart.options.plugins.annotation.annotations) {
+      Object.keys(chart.options.plugins.annotation.annotations).forEach(key => {
+        if (key.startsWith('avgline_')) delete chart.options.plugins.annotation.annotations[key];
+      });
+    }
+  });
 
   const rollK=getKdeFactorAngles(true);
   const pitchK=getKdeFactorAngles(false);
   const frqK=getKdeFactorFreq();
 
+  // Gather all ys for roll, pitch, freq to determine max for each
+  let allRollYs = [], allPitchYs = [], allFreqRollYs = [], allFreqPitchYs = [];
+  const rollDatasets = [], pitchDatasets = [], freqRollDatasets = [], freqPitchDatasets = [];
   for(const id of Object.keys(units)){
     const u=units[id];
     const rI=upsertDistDataset(distCharts.roll, distIdx.roll, id, u.color);
     const pI=upsertDistDataset(distCharts.pitch,distIdx.pitch,id, u.color);
-    const fI=upsertDistDataset(distCharts.freq, distIdx.freq, id, u.color);
+    const frI=upsertDistDataset(distCharts.freqRoll, distIdx.freqRoll = distIdx.freqRoll || {}, id, u.color);
+    const fpI=upsertDistDataset(distCharts.freqPitch, distIdx.freqPitch = distIdx.freqPitch || {}, id, u.color);
 
     if(!u.visible || !u.times.length){
       distCharts.roll.data.datasets[rI].hidden=true;
       distCharts.pitch.data.datasets[pI].hidden=true;
-      distCharts.freq.data.datasets[fI].hidden=true;
+      distCharts.freqRoll.data.datasets[frI].hidden=true;
+      distCharts.freqPitch.data.datasets[fpI].hidden=true;
       continue;
     }
 
@@ -1010,37 +1094,96 @@ function updateUnifiedDistributions(){
 
     if(rWin.length){
       let ys=kdeOnGridLogBackShift(rWin,distCharts.xsDeg,rollK);
-      const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
-      const ds=distCharts.roll.data.datasets[rI];
-      ds.data=points(distCharts.xsDeg,ys);
-      ds.borderColor=u.color; ds.backgroundColor=u.color+'22';
-      ds.hidden=false;
+      ys = ys.map(y=>y*100);
+      allRollYs.push(...ys);
+      rollDatasets.push({idx: rI, data: ys, color: u.color});
+  // ...removed AVG line for live roll distrib...
     }
-
     if(pWin.length){
       let ys=kdeOnGridLogBackShift(pWin,distCharts.xsDeg,pitchK);
-      const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
-      const ds=distCharts.pitch.data.datasets[pI];
-      ds.data=points(distCharts.xsDeg,ys);
-      ds.borderColor=u.color; ds.backgroundColor=u.color+'22';
-      ds.hidden=false;
+      ys = ys.map(y=>y*100);
+      allPitchYs.push(...ys);
+      pitchDatasets.push({idx: pI, data: ys, color: u.color});
+  // ...removed AVG line for live pitch distrib...
     }
-
+    // Roll freq
     const rPeaks=detectPeaks(rWin,tWin,parseFloat($('minDist').value||'300'),parseFloat($('minProm').value||'5.0'));
-    const fSamples=freqSamplesFromPeaks(rPeaks);
-    if(fSamples.length){
-      let ys=kdeOnGridLogBack(fSamples,distCharts.xsHz,frqK);
-      const m=Math.max(...ys,0); ys = m>0 ? ys.map(y=>y/m*100) : ys.map(_=>0);
-      const ds=distCharts.freq.data.datasets[fI];
-      ds.data=points(distCharts.xsHz,ys);
-      ds.borderColor=u.color; ds.backgroundColor=u.color+'22';
-      ds.hidden=false;
+    const fSamplesR=freqSamplesFromPeaks(rPeaks);
+    if(fSamplesR.length){
+      let ys=kdeOnGridLogBack(fSamplesR,distCharts.xsHz,frqK);
+      ys = ys.map(y=>y*100);
+      allFreqRollYs.push(...ys);
+      freqRollDatasets.push({idx: frI, data: ys, color: u.color});
+  // ...removed AVG line for live freqRoll distrib...
     }
+    // Pitch freq
+    const pPeaks=detectPeaks(pWin,tWin,parseFloat($('minDist').value||'300'),parseFloat($('minProm').value||'5.0'));
+    const fSamplesP=freqSamplesFromPeaks(pPeaks);
+    if(fSamplesP.length){
+      let ys=kdeOnGridLogBack(fSamplesP,distCharts.xsHz,frqK);
+      ys = ys.map(y=>y*100);
+      allFreqPitchYs.push(...ys);
+      freqPitchDatasets.push({idx: fpI, data: ys, color: u.color});
+  // ...removed AVG line for live freqPitch distrib...
+    }
+  }
+
+  // Find y max for roll and pitch separately, then set both to the higher value
+  const rollMax = Math.max(10, ...allRollYs);
+  const pitchMax = Math.max(10, ...allPitchYs);
+  const rollPitchMax = Math.max(rollMax, pitchMax) * 1.05;
+  // Find y max for freq roll and pitch separately, then set both to the higher value
+  const freqRollMax = Math.max(10, ...allFreqRollYs);
+  const freqPitchMax = Math.max(10, ...allFreqPitchYs);
+  const freqMax = Math.max(freqRollMax, freqPitchMax) * 1.05;
+  distCharts.roll.options.scales.y.max = rollPitchMax;
+  distCharts.pitch.options.scales.y.max = rollPitchMax;
+  distCharts.freqRoll.options.scales.y.max = freqMax;
+  distCharts.freqPitch.options.scales.y.max = freqMax;
+
+  // Update datasets
+  for(const ds of distCharts.roll.data.datasets){ ds.hidden=true; ds.data.length=0; }
+  for(const ds of distCharts.pitch.data.datasets){ ds.hidden=true; ds.data.length=0; }
+  for(const ds of distCharts.freqRoll.data.datasets){ ds.hidden=true; ds.data.length=0; }
+  for(const ds of distCharts.freqPitch.data.datasets){ ds.hidden=true; ds.data.length=0; }
+  for(const d of rollDatasets){
+    const ds=distCharts.roll.data.datasets[d.idx];
+    ds.data=points(distCharts.xsDeg,d.data);
+    ds.borderColor=d.color; ds.backgroundColor=d.color+'22';
+    // Set label to athlete custom name if available
+    const unitId = Object.keys(distIdx.roll).find(key => distIdx.roll[key] === d.idx);
+    ds.label = (unitId && units[unitId] && units[unitId].customName) ? units[unitId].customName : unitId || '';
+    ds.hidden=false;
+  }
+  for(const d of pitchDatasets){
+    const ds=distCharts.pitch.data.datasets[d.idx];
+    ds.data=points(distCharts.xsDeg,d.data);
+    ds.borderColor=d.color; ds.backgroundColor=d.color+'22';
+    const unitId = Object.keys(distIdx.pitch).find(key => distIdx.pitch[key] === d.idx);
+    ds.label = (unitId && units[unitId] && units[unitId].customName) ? units[unitId].customName : unitId || '';
+    ds.hidden=false;
+  }
+  for(const d of freqRollDatasets){
+    const ds=distCharts.freqRoll.data.datasets[d.idx];
+    ds.data=points(distCharts.xsHz,d.data);
+    ds.borderColor=d.color; ds.backgroundColor=d.color+'22';
+    const unitId = Object.keys(distIdx.freqRoll).find(key => distIdx.freqRoll[key] === d.idx);
+    ds.label = (unitId && units[unitId] && units[unitId].customName) ? units[unitId].customName : unitId || '';
+    ds.hidden=false;
+  }
+  for(const d of freqPitchDatasets){
+    const ds=distCharts.freqPitch.data.datasets[d.idx];
+    ds.data=points(distCharts.xsHz,d.data);
+    ds.borderColor=d.color; ds.backgroundColor=d.color+'22';
+    const unitId = Object.keys(distIdx.freqPitch).find(key => distIdx.freqPitch[key] === d.idx);
+    ds.label = (unitId && units[unitId] && units[unitId].customName) ? units[unitId].customName : unitId || '';
+    ds.hidden=false;
   }
 
   distCharts.roll.update('none');
   distCharts.pitch.update('none');
-  distCharts.freq.update('none');
+  distCharts.freqRoll.update('none');
+  distCharts.freqPitch.update('none');
 }
 function recomputePeaks(){
   const winSec=parseFloat(winNum.value||'30'), minDist=parseFloat($('minDist').value||'300'), minProm=parseFloat($('minProm').value||'5.0');
@@ -1316,23 +1459,19 @@ function startPlaceStartLine(){
 const btnRecord=$('btnRecord'), recInfo=$('recInfo');
 btnRecord.addEventListener('click',()=>{ if(!recActive){ startRec(); } else { stopRec(); } });
 
-// Store all recordings in session and persist to localStorage by date
+// Store all recordings in session and persist to localStorage until deleted
 let allRecordings = [];
-
-function getTodayKey() {
-  const d = new Date();
-  return `recordings_${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
+const RECORDINGS_KEY = 'recordings_all';
 
 function saveRecordingsToStorage() {
   try {
-    localStorage.setItem(getTodayKey(), JSON.stringify(allRecordings));
+    localStorage.setItem(RECORDINGS_KEY, JSON.stringify(allRecordings));
   } catch (e) { console.warn('Failed to save recordings:', e); }
 }
 
 function loadRecordingsFromStorage() {
   try {
-    const data = localStorage.getItem(getTodayKey());
+    const data = localStorage.getItem(RECORDINGS_KEY);
     if (data) {
       allRecordings = JSON.parse(data);
       generateReportsTabs();
@@ -1342,6 +1481,64 @@ function loadRecordingsFromStorage() {
 
 // Load on startup
 window.addEventListener('DOMContentLoaded', loadRecordingsFromStorage);
+
+// Show all cached athlete names as editable config rows in settings
+function renderAllUnitConfigRows() {
+  const container = document.getElementById('unitsConfig');
+  if (!container) return;
+  container.innerHTML = '';
+  const config = loadUnitConfig();
+  const allUnitIds = Object.keys(config);
+  if (allUnitIds.length === 0) {
+    const msg = document.createElement('div');
+    msg.className = 'small';
+    msg.textContent = 'No cached athlete names.';
+    container.appendChild(msg);
+    return;
+  }
+  allUnitIds.forEach(unitId => {
+    let row = document.createElement('div');
+    row.className = 'unit-config-row';
+    row.dataset.unit = unitId;
+    row.style.display = 'grid';
+    row.style.gridTemplateColumns = 'minmax(80px, 1fr) minmax(120px, 1.5fr) minmax(100px, 1fr)';
+    row.style.gap = '8px';
+    row.style.alignItems = 'center';
+
+    // Original name label
+    const origLabel = document.createElement('div');
+    origLabel.className = 'small';
+    origLabel.textContent = unitId;
+    row.appendChild(origLabel);
+
+    // Custom name input
+    const nameInput = document.createElement('input');
+    nameInput.className = 'unit-custom-name';
+    nameInput.type = 'text';
+    nameInput.placeholder = 'Custom name';
+    nameInput.value = config[unitId].customName || '';
+    row.appendChild(nameInput);
+
+    // Color select
+    const colorSelect = document.createElement('select');
+    colorSelect.className = 'unit-color';
+    COLORS_PALETTE.forEach(color => {
+      const opt = document.createElement('option');
+      opt.value = color.value;
+      opt.textContent = color.name;
+      if (color.value === (config[unitId].color || COLORS_BASE[0])) {
+        opt.selected = true;
+      }
+      colorSelect.appendChild(opt);
+    });
+    row.appendChild(colorSelect);
+
+    container.appendChild(row);
+  });
+}
+document.addEventListener('DOMContentLoaded', renderAllUnitConfigRows);
+window.addEventListener('storage', renderAllUnitConfigRows);
+// Also call after saving config (add to your config save logic if needed)
 
 function startRec(){
   recActive=true; recRows=[]; recStartedAt=Date.now();
@@ -1529,53 +1726,62 @@ function showReportFor(recId) {
       const storedUnit = window.unitSettings[id] || {};
       colorMap[id] = storedUnit.color || COLORS_BASE[0];
     });
-    // Prepare KDE data for all units
+
+    // Prepare KDE data for all units, using the same logic as live distribs
     const kdeData = { roll: {}, pitch: {}, freqRoll: {}, freqPitch: {} };
     unitIds.forEach(unit => {
       const arr = byUnit[unit];
-      kdeData.roll[unit] = { data: arr.map(r => r.roll).filter(Number.isFinite) };
-      kdeData.pitch[unit] = { data: arr.map(r => r.pitch).filter(Number.isFinite) };
-      // Freq from roll zero-crossings
       const rolls = arr.map(r => r.roll).filter(Number.isFinite);
-      const times = arr.map(r => r.t).filter(Number.isFinite);
-      let freqRoll = [];
-      if (rolls.length > 2 && times.length === rolls.length) {
-        let lastSign = Math.sign(rolls[0]);
-        let lastT = times[0];
-        for (let i = 1; i < rolls.length; ++i) {
-          const sign = Math.sign(rolls[i]);
-          if (sign !== 0 && sign !== lastSign) {
-            const dt = (times[i] - lastT) / 1000;
-            if (dt > 0.05 && dt < 10) freqRoll.push(1/dt);
-            lastT = times[i];
-            lastSign = sign;
-          }
-        }
-      }
-      kdeData.freqRoll[unit] = { data: freqRoll };
-      // Freq from pitch zero-crossings
       const pitchs = arr.map(r => r.pitch).filter(Number.isFinite);
-      let freqPitch = [];
-      if (pitchs.length > 2 && times.length === pitchs.length) {
-        let lastSign = Math.sign(pitchs[0]);
-        let lastT = times[0];
-        for (let i = 1; i < pitchs.length; ++i) {
-          const sign = Math.sign(pitchs[i]);
-          if (sign !== 0 && sign !== lastSign) {
-            const dt = (times[i] - lastT) / 1000;
-            if (dt > 0.05 && dt < 10) freqPitch.push(1/dt);
-            lastT = times[i];
-            lastSign = sign;
-          }
-        }
-      }
-      kdeData.freqPitch[unit] = { data: freqPitch };
+      const times = arr.map(r => r.t).filter(Number.isFinite);
+      kdeData.roll[unit] = { data: rolls };
+      kdeData.pitch[unit] = { data: pitchs };
+      // Use detectPeaks and freqSamplesFromPeaks as in live
+      const minDist = 300, minProm = 5.0;
+      const rPeaks = detectPeaks(rolls, times, minDist, minProm);
+      const pPeaks = detectPeaks(pitchs, times, minDist, minProm);
+      kdeData.freqRoll[unit] = { data: freqSamplesFromPeaks(rPeaks) };
+      kdeData.freqPitch[unit] = { data: freqSamplesFromPeaks(pPeaks) };
     });
-  drawKDEMulti('report-kde-roll', kdeData.roll, DEG_RANGE.min, DEG_RANGE.max, DEG_RANGE.gridCnt, getKdeFactorAngles(true), 'Roll (°)', false, colorMap);
-  drawKDEMulti('report-kde-pitch', kdeData.pitch, DEG_RANGE.min, DEG_RANGE.max, DEG_RANGE.gridCnt, getKdeFactorAngles(false), 'Pitch (°)', false, colorMap);
-  // Use logKDE=true and logXAxis=true for frequency plots
-  drawKDEMulti('report-kde-freq-roll', kdeData.freqRoll, FREQ_RANGE.min, FREQ_RANGE.max, FREQ_RANGE.gridCnt, getKdeFactorFreq(), 'Freq (roll)', true, colorMap, true);
-  drawKDEMulti('report-kde-freq-pitch', kdeData.freqPitch, FREQ_RANGE.min, FREQ_RANGE.max, FREQ_RANGE.gridCnt, getKdeFactorFreq(), 'Freq (pitch)', true, colorMap, true);
+
+    // Compute y max for roll/pitch and freq using KDE smoothing and scaling by 100
+    const xsRoll = linspace(DEG_RANGE.min, DEG_RANGE.max, DEG_RANGE.gridCnt);
+    const xsFreq = linspace(FREQ_RANGE.min, FREQ_RANGE.max, FREQ_RANGE.gridCnt);
+    let rollMax = 0, pitchMax = 0, freqRollMax = 0, freqPitchMax = 0;
+    Object.entries(kdeData.roll).forEach(([unit, d]) => {
+      if (d.data && d.data.length) {
+        const ys = kdeOnGridLogBackShift(d.data, xsRoll, getKdeFactorAngles(true)).map(y=>y*100);
+        rollMax = Math.max(rollMax, ...ys);
+      }
+    });
+    Object.entries(kdeData.pitch).forEach(([unit, d]) => {
+      if (d.data && d.data.length) {
+        const ys = kdeOnGridLogBackShift(d.data, xsRoll, getKdeFactorAngles(false)).map(y=>y*100);
+        pitchMax = Math.max(pitchMax, ...ys);
+      }
+    });
+    Object.entries(kdeData.freqRoll).forEach(([unit, d]) => {
+      if (d.data && d.data.length) {
+        const ys = kdeOnGridLogBack(d.data, xsFreq, getKdeFactorFreq()).map(y=>y*100);
+        freqRollMax = Math.max(freqRollMax, ...ys);
+      }
+    });
+    Object.entries(kdeData.freqPitch).forEach(([unit, d]) => {
+      if (d.data && d.data.length) {
+        const ys = kdeOnGridLogBack(d.data, xsFreq, getKdeFactorFreq()).map(y=>y*100);
+        freqPitchMax = Math.max(freqPitchMax, ...ys);
+      }
+    });
+    const rollPitchMax = Math.max(10, rollMax, pitchMax) * 1.05;
+    const freqMax = Math.max(10, freqRollMax, freqPitchMax) * 1.05;
+
+    // Draw roll and pitch distribs (as before)
+    drawKDEMulti('report-kde-roll', kdeData.roll, DEG_RANGE.min, DEG_RANGE.max, DEG_RANGE.gridCnt, getKdeFactorAngles(true), 'Roll (°)', false, colorMap, false, rollPitchMax);
+    drawKDEMulti('report-kde-pitch', kdeData.pitch, DEG_RANGE.min, DEG_RANGE.max, DEG_RANGE.gridCnt, getKdeFactorAngles(false), 'Pitch (°)', false, colorMap, false, rollPitchMax);
+
+    // Draw freq distribs using the same style as roll/pitch (linear x axis, kde smoothing, AVG line/label logic)
+    drawKDEMulti('report-kde-freq-roll', kdeData.freqRoll, FREQ_RANGE.min, FREQ_RANGE.max, FREQ_RANGE.gridCnt, getKdeFactorFreq(), 'Freq (roll)', false, colorMap, false, freqMax);
+    drawKDEMulti('report-kde-freq-pitch', kdeData.freqPitch, FREQ_RANGE.min, FREQ_RANGE.max, FREQ_RANGE.gridCnt, getKdeFactorFreq(), 'Freq (pitch)', false, colorMap, false, freqMax);
   }, 50);
 }
 
@@ -1645,7 +1851,7 @@ function computeRecordingStats(rows) {
 }
 
 // Draw multi-unit KDE
-function drawKDEMulti(canvasId, kdeData, min, max, n, factor, label, logKDE, colorMap, logXAxis) {
+function drawKDEMulti(canvasId, kdeData, min, max, n, factor, label, logKDE, colorMap, logXAxis, yMaxShared) {
   const el = document.getElementById(canvasId);
   if (!el) return;
   const xs = linspace(min, max, n);
@@ -1653,12 +1859,11 @@ function drawKDEMulti(canvasId, kdeData, min, max, n, factor, label, logKDE, col
     const data = kdeData[unit].data;
     if (!data.length) return null;
     let ys = logKDE ? kdeOnGridLogBack(data, xs, factor) : kdeOnGridLogBackShift(data, xs, factor);
-    const maxY = Math.max(...ys);
-    const normYs = maxY > 0 ? ys.map(y => y / maxY * 100) : ys;
+    ys = ys.map(y=>y*100); // direct KDE percentage
     const storedUnit = window.unitSettings?.[unit] || {};
     return {
       label: storedUnit.customName || unit,
-      data: normYs,
+      data: ys,
       borderColor: colorMap[unit] || COLORS_BASE[0],
       backgroundColor: (colorMap[unit] || COLORS_BASE[0]) + '33',
       pointRadius: 0,
@@ -1667,7 +1872,14 @@ function drawKDEMulti(canvasId, kdeData, min, max, n, factor, label, logKDE, col
     };
   }).filter(Boolean);
 
-  new Chart(el.getContext('2d'), {
+  // Ensure annotation plugin is registered for every new chart
+  if (window['chartjs-plugin-annotation'] && Chart.registry && !Chart.registry.plugins.get('annotation')) {
+    Chart.register(window['chartjs-plugin-annotation']);
+  }
+  // Determine if this is a freq distrib (by canvasId)
+  const isFreq = canvasId.includes('freq');
+  const freqTicks = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5];
+  const chart = new Chart(el.getContext('2d'), {
     type: 'line',
     data: {
       labels: xs.map(x => x.toFixed(2)),
@@ -1680,12 +1892,29 @@ function drawKDEMulti(canvasId, kdeData, min, max, n, factor, label, logKDE, col
       layout: { padding: { left: 10, right: 10, bottom: 8, top: 4 } },
       plugins: {
         legend: { position: 'bottom', labels: { boxWidth: 10, boxHeight: 10, usePointStyle: true, pointStyle: 'line', color: '#000000' } },
-        tooltip: { mode: 'index', intersect: false, callbacks: { label: (ctx) => `${ctx.dataset.label}: ${Math.round(ctx.parsed.y)}%` } },
+        tooltip: { mode: 'index', intersect: false, callbacks: { label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toFixed(2)}%` } },
         annotation: !logXAxis ? red_zero_line() : undefined
       },
       elements: { line: { tension: 0.25, borderWidth: 2 }, point: { radius: 0 } },
       scales: {
-        x: logXAxis ? {
+        x: isFreq ? {
+          type: 'logarithmic',
+          title: { display: false },
+          min: min,
+          max: max,
+          grid: { color: '#e0e0e0', tickLength: 4, lineWidth: 1 },
+          ticks: {
+            color: '#000000',
+            padding: 6,
+            maxRotation: 0,
+            minRotation: 0,
+            values: freqTicks,
+            callback: function(value) {
+              return freqTicks.includes(value) ? value : '';
+            }
+          }
+        }
+        : logXAxis ? {
           type: 'logarithmic',
           title: { display: false },
           min: min,
@@ -1697,7 +1926,6 @@ function drawKDEMulti(canvasId, kdeData, min, max, n, factor, label, logKDE, col
             maxRotation: 0,
             minRotation: 0,
             maxTicksLimit: 100,
-            // No stepSize for log axis
             callback: function(value) {
               if ([0.01,0.02,0.05,0.1,0.2,0.5,1,2,5].includes(value)) return value;
               return '';
@@ -1722,13 +1950,58 @@ function drawKDEMulti(canvasId, kdeData, min, max, n, factor, label, logKDE, col
         y: {
           title: { display: false },
           min: 0,
-          max: 110,
+          max: yMaxShared || undefined,
           grid: { color: '#e0e0e0', tickLength: 4, lineWidth: 1 },
-          ticks: { color: '#000000', display: false }
+          ticks: { display: false }
         }
       }
+    },
+    plugins: [window['chartjs-plugin-annotation']].filter(Boolean)
+  });
+
+  // Always show AVG line for all athletes in reports
+  let showAvgLabel = false;
+  const labelBox = document.getElementById('showAvgLabel');
+  if (labelBox) showAvgLabel = !!labelBox.checked;
+
+  let avgDebugStr = '';
+  let fallbackWarn = false;
+  Object.keys(kdeData).forEach(unit => {
+    const data = kdeData[unit].data;
+    if (!data.length) {
+      // Fallback: show gray line at center of x axis
+      if (logKDE) {
+        const center = (min + max) / 2;
+        addAvgLineToDistribChart(chart, center, '#888', 'NO DATA', true, true);
+        fallbackWarn = true;
+        avgDebugStr += ` | ${unit}: NO DATA`;
+      }
+      return;
+    }
+    let ys = logKDE ? kdeOnGridLogBack(data, xs, factor) : kdeOnGridLogBackShift(data, xs, factor);
+    ys = ys.map(y=>y*100);
+    // For all distribs, use the mean of the raw data for AVG line
+    const avg = meanStd(data).mean;
+    const color = colorMap[unit] || COLORS_BASE[0];
+    if (Number.isFinite(avg)) {
+      addAvgLineToDistribChart(chart, avg, color, undefined, true, showAvgLabel);
+      avgDebugStr += ` | ${unit}: ${avg.toFixed(2)}`;
+    } else if (logKDE) {
+      // Fallback: show gray line at center
+      const center = (min + max) / 2;
+      addAvgLineToDistribChart(chart, center, '#888', 'NO AVG', true, true);
+      fallbackWarn = true;
+      avgDebugStr += ` | ${unit}: NO AVG`;
     }
   });
+  // Set plot title to base only (no stats/debug info)
+  const titleEl = el.closest('.card')?.querySelector('div[style*="font-weight:700"]');
+  if (titleEl) {
+    let baseTitle = titleEl.textContent.split(' | ')[0];
+    titleEl.textContent = baseTitle;
+    if (fallbackWarn) titleEl.style.color = '#b00';
+    else titleEl.style.color = '';
+  }
 }
 
 // ---------- Tabs ----------
@@ -1780,10 +2053,12 @@ document.getElementById('btnUnlock').addEventListener('click',async ()=>{
     (function initDists(){
   const rctx=document.getElementById('dist-roll').getContext('2d');
   const pctx=document.getElementById('dist-pitch').getContext('2d');
-  const fctx=document.getElementById('dist-freq').getContext('2d');
+  const frctx=document.getElementById('dist-freq-roll').getContext('2d');
+  const fpctx=document.getElementById('dist-freq-pitch').getContext('2d');
   distCharts.roll = makeDensityChartMulti(rctx,'Roll', {min:DEG_RANGE.min,max:DEG_RANGE.max,step:DEG_RANGE.step,type:'linear'});
   distCharts.pitch= makeDensityChartMulti(pctx,'Pitch',{min:DEG_RANGE.min,max:DEG_RANGE.max,step:DEG_RANGE.step,type:'linear'});
-  distCharts.freq = makeDensityChartMulti(fctx,'Freq',  {min:FREQ_RANGE.min,max:FREQ_RANGE.max,step:FREQ_RANGE.step,type:'logarithmic'});
+  distCharts.freqRoll = makeDensityChartMulti(frctx,'Freq (Roll)',  {min:FREQ_RANGE.min,max:FREQ_RANGE.max,step:FREQ_RANGE.step,type:'logarithmic'});
+  distCharts.freqPitch = makeDensityChartMulti(fpctx,'Freq (Pitch)',  {min:FREQ_RANGE.min,max:FREQ_RANGE.max,step:FREQ_RANGE.step,type:'logarithmic'});
   distCharts.xsDeg=null; distCharts.xsHz=null;
     })();
 
