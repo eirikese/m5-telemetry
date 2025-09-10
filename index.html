@@ -1397,20 +1397,46 @@ function startPlotTimer() {
 }
 startPlotTimer();
 // Live plotting toggle button logic
+function checkTopbarWidth() {
+  const topbar = document.querySelector('.topbar');
+  const title = document.querySelector('.app-title');
+  const ver = document.querySelector('.ver');
+  if (!topbar || !title || !ver) return;
+  // Reset visibility
+  title.style.display = '';
+  ver.style.display = '';
+  // Check if overflowing
+  if (topbar.scrollWidth > topbar.clientWidth + 2) {
+    title.style.display = 'none';
+    ver.style.display = 'none';
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  // Live plotting toggle
   const btn = document.getElementById('btnToggleLivePlot');
-  if (!btn) return;
-  btn.onclick = function() {
-    livePlottingEnabled = !livePlottingEnabled;
-    if (plotTimer) clearInterval(plotTimer);
-    if (livePlottingEnabled) {
-      btn.textContent = 'Pause Live Plotting';
-      startPlotTimer();
-    } else {
-      btn.textContent = 'Resume Live Plotting';
-    }
-  };
+  if (btn) {
+    btn.onclick = function() {
+      livePlottingEnabled = !livePlottingEnabled;
+      if (plotTimer) clearInterval(plotTimer);
+      if (livePlottingEnabled) {
+        btn.textContent = 'Pause Live Plotting';
+        startPlotTimer();
+      } else {
+        btn.textContent = 'Resume Live Plotting';
+      }
+    };
+  }
+  window.addEventListener('resize', checkTopbarWidth);
 });
+
+// Patch: also check topbar width after unlock (when #app is shown)
+const unlockBtn = document.getElementById('btnUnlock');
+if (unlockBtn) {
+  unlockBtn.addEventListener('click', () => {
+    setTimeout(checkTopbarWidth, 100); // Wait for UI to update
+  });
+}
 
 // ---------- velocity, distances & VMG ----------
 const Rm=6371000;
