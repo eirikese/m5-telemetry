@@ -106,6 +106,23 @@
 <script>
   // Register and enable the annotation plugin globally
   Chart.register(window['chartjs-plugin-annotation']);
+
+  // Add overlay style for Stay Awake mode
+  const style = document.createElement('style');
+  style.innerHTML = `
+    #stayAwakeOverlay {
+      position: fixed; z-index: 9999; top: 0; left: 0; width: 100vw; height: 100vh;
+      background: #000; display: flex; align-items: center; justify-content: center;
+      flex-direction: column; color: #fff; transition: opacity 0.2s; opacity: 1;
+    }
+    #stayAwakeOverlay.hidden { display: none; }
+    #btnExitStayAwake {
+      font-size: 1.3em; padding: 22px 36px; border-radius: 16px; background: #222; color: #fff;
+      border: 2px solid #fff; margin-top: 20px;
+    }
+    #stayAwakeMsg { color: #fff; font-size: 1.1em; margin-bottom: 18px; }
+  `;
+  document.head.appendChild(style);
 </script>
 </head>
 <body>
@@ -140,7 +157,10 @@
         <div class="card half" id="nowPanel">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
             <span style="font-weight:700;">Now</span>
-            <button id="btnToggleLivePlot" class="small" style="margin-left:8px;">Pause Live Plotting</button>
+            <span>
+              <button id="btnToggleLivePlot" class="small" style="margin-left:8px;">Pause Live Plotting</button>
+              <button id="btnStayAwake" class="small" style="margin-left:8px;">Stay Awake</button>
+            </span>
           </div>
           <div id="nowUnits" class="grid" style="margin-top:10px;grid-template-columns:repeat(auto-fit, minmax(240px, 1fr));gap:12px"></div>
         </div>
@@ -868,8 +888,15 @@ function ensureUnit(unitId){
   u.poly.setStyle({opacity: 0}); u.marker.setStyle({opacity: 0, fillOpacity: 0});
 
   // Now card (+ distances)
-  const nowCard = document.createElement('div'); nowCard.className = 'unitNow uNums'; nowCard.style.setProperty('--ucolor', color);
-  nowCard.innerHTML = `<div class="unitTag" id="tag-${unitId}" style="background:${color}">${customName}</div>
+  const nowCard = document.createElement('div');
+  nowCard.className = 'unitNow uNums';
+  nowCard.style.setProperty('--ucolor', color);
+  // Add refresh rate indicator in top right (dynamic)
+  nowCard.innerHTML = `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <div class="unitTag" id="tag-${unitId}" style="background:${color}">${customName}</div>
+      <div class="tiny" id="refresh-hz-${unitId}" style="font-size:10px;opacity:0.7;align-self:flex-start;">– Hz</div>
+    </div>
     <div class="grid" style="grid-template-columns:1fr 1fr">
       <div><div class="small">Roll</div><div class="num" id="now-roll-${unitId}">–</div></div>
       <div><div class="small">Pitch</div><div class="num" id="now-pitch-${unitId}">–</div></div>
@@ -885,7 +912,22 @@ function ensureUnit(unitId){
   u.nowElems = { roll: $(`now-roll-${unitId}`), pitch: $(`now-pitch-${unitId}`), hz: $(`now-hz-${unitId}`),
                sog: $(`now-sog-${unitId}`), vmg: $(`now-vmg-${unitId}`), sogMean: $(`now-sogmean-${unitId}`),
                hdg: $(`now-hdg-${unitId}`), ll: $(`now-ll-${unitId}`),
-               dStart: $(`now-dstart-${unitId}`), dTop: $(`now-dtop-${unitId}`) };
+               dStart: $(`now-dstart-${unitId}`), dTop: $(`now-dtop-${unitId}`),
+               refreshHz: $(`refresh-hz-${unitId}`) };
+// Update refresh rate for each athlete tile in Now
+setInterval(() => {
+  for (const id of Object.keys(units)) {
+    const u = units[id];
+    if (!u.nowElems || !u.nowElems.refreshHz) continue;
+    const times = u.times;
+    let hz = '–';
+    if (times && times.length >= 2) {
+      const dt = times[times.length - 1] - times[times.length - 2];
+      if (dt > 0 && dt < 10000) hz = (1000 / dt).toFixed(1);
+    }
+    u.nowElems.refreshHz.textContent = hz + ' Hz';
+  }
+}, 333);
 
   // Stats card
   const statsCol = document.createElement('div'); statsCol.className = 'card half unitStats'; statsCol.style.setProperty('--ucolor', color);
@@ -1276,6 +1318,68 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.textContent = 'Resume Live Plotting';
     }
   };
+
+  // Stay Awake logic
+  const btnStayAwake = document.getElementById('btnStayAwake');
+  const overlay = document.getElementById('stayAwakeOverlay');
+  const btnExit = document.getElementById('btnExitStayAwake');
+  let stayAwakeActive = false;
+  let pausedBeforeStayAwake = false;
+  let triplePressCount = 0;
+  let triplePressTimeout = null;
+  let wakeLockSentinel = null;
+
+  async function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+      try {
+        wakeLockSentinel = await navigator.wakeLock.request('screen');
+        wakeLockSentinel.addEventListener('release', () => { wakeLockSentinel = null; });
+      } catch (e) {}
+    }
+  }
+  async function releaseWakeLock() {
+    if (wakeLockSentinel) {
+      try { await wakeLockSentinel.release(); } catch (e) {}
+      wakeLockSentinel = null;
+    }
+  }
+
+  function setStayAwakeMode(on) {
+    stayAwakeActive = on;
+    overlay.className = on ? '' : 'hidden';
+    document.body.style.overflow = on ? 'hidden' : '';
+    if (on) {
+      pausedBeforeStayAwake = !livePlottingEnabled;
+      if (plotTimer) clearInterval(plotTimer);
+      livePlottingEnabled = false;
+      btn.textContent = 'Resume Live Plotting';
+      requestWakeLock();
+    } else {
+      if (!pausedBeforeStayAwake) {
+        livePlottingEnabled = true;
+        startPlotTimer();
+        btn.textContent = 'Pause Live Plotting';
+      }
+      releaseWakeLock();
+    }
+  }
+
+  if (btnStayAwake) {
+    btnStayAwake.onclick = function() {
+      setStayAwakeMode(true);
+    };
+  }
+  if (btnExit) {
+    btnExit.onclick = function() {
+      triplePressCount++;
+      if (triplePressTimeout) clearTimeout(triplePressTimeout);
+      triplePressTimeout = setTimeout(() => { triplePressCount = 0; }, 1200);
+      if (triplePressCount >= 3) {
+        triplePressCount = 0;
+        setStayAwakeMode(false);
+      }
+    };
+  }
 });
 
 // ---------- velocity, distances & VMG ----------
@@ -2446,5 +2550,10 @@ setInterval(updateAxisRange,100);
 const btnTM=document.getElementById('btnTopMark'); if(btnTM){ btnTM.addEventListener('click', startPlaceTopMark); }
 const btnSL=document.getElementById('btnStartLine'); if(btnSL){ btnSL.addEventListener('click', startPlaceStartLine); }
 </script>
+</body>
+  <div id="stayAwakeOverlay" class="hidden">
+    <div id="stayAwakeMsg">Stay Awake Mode Active</div>
+    <button id="btnExitStayAwake">Tap 3x to Exit</button>
+  </div>
 </body>
 </html>
