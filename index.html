@@ -1398,18 +1398,21 @@ function startPlotTimer() {
 startPlotTimer();
 // Live plotting toggle button logic
 function checkTopbarWidth() {
-  const topbar = document.querySelector('.topbar');
-  const title = document.querySelector('.app-title');
-  const ver = document.querySelector('.ver');
-  if (!topbar || !title || !ver) return;
-  // Reset visibility
-  title.style.display = '';
-  ver.style.display = '';
-  // Check if overflowing
-  if (topbar.scrollWidth > topbar.clientWidth + 2) {
-    title.style.display = 'none';
-    ver.style.display = 'none';
-  }
+  // Use rAF to ensure layout is up to date (important for mobile/Safari)
+  window.requestAnimationFrame(() => {
+    const topbar = document.querySelector('.topbar');
+    const title = document.querySelector('.app-title');
+    const ver = document.querySelector('.ver');
+    if (!topbar || !title || !ver) return;
+    // Reset visibility
+    title.style.display = '';
+    ver.style.display = '';
+    // Check if overflowing
+    if (topbar.scrollWidth > topbar.clientWidth + 2) {
+      title.style.display = 'none';
+      ver.style.display = 'none';
+    }
+  });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -1428,6 +1431,12 @@ document.addEventListener('DOMContentLoaded', () => {
     };
   }
   window.addEventListener('resize', checkTopbarWidth);
+  // On mobile, also observe DOM/layout changes in topbar
+  const topbar = document.querySelector('.topbar');
+  if (window.MutationObserver && topbar) {
+    const mo = new MutationObserver(() => checkTopbarWidth());
+    mo.observe(topbar, { childList: true, subtree: true, attributes: true });
+  }
 });
 
 // Patch: also check topbar width after unlock (when #app is shown)
